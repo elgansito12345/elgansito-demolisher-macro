@@ -1,0 +1,18 @@
+# your own settings (username, party code, positions) - never commit
+config.json
+config.json.tmp
+crash.log
+# your recordings and captures
+templates/snapshot_*.png
+templates/capture_*.png
+templates/*_[0-9]*.png
+# build output
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+
+# packaged app copies
+*.exe
+_internal/
