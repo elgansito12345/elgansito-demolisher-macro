@@ -460,9 +460,13 @@ class Engine:
                     now = time.time()
                     if focused and self.universe_id and now - self._server_read_at > 3:
                         self._server_read_at = now
-                        self.server.add(self.job_id, self._read_box(sct, cfg.get("server_name", {}).get(
-                            "region", servername.DEFAULT_REGION), servername.read))
+                        srv = self._read_box(sct, cfg.get("server_name", {}).get(
+                            "region", servername.DEFAULT_REGION), servername.read)
                         reg = self._read_box(sct, hud.REGION_BOX, hud.read_region)
+                        if not srv:  # other screen sizes: search the whole top line instead
+                            srv, auto_reg = self._read_box(sct, hud.TOP_STRIP, hud.auto_server_region) or (None, None)
+                            reg = auto_reg or reg
+                        self.server.add(self.job_id, srv)
                         if reg:
                             self.region = reg
                     if not self.universe_id:

@@ -89,6 +89,7 @@ class Cooldown:
         self.unconfirmed = False   # started by a key press the game hasn't shown yet
         self.cool_started = None   # when the bubble went dim
         self.natural = []          # recent full cooldown lengths seen on the bubble
+        self.ignored_streak = 0    # presses in a row the bubble never showed; 3 = we're misreading it
         self.lock = threading.Lock()
 
     def span(self):
@@ -98,7 +99,7 @@ class Cooldown:
         return self.duration
 
     def icon_live(self, t):
-        return self.icon_slot > 0 and t - self.icon_seen_at < 0.5
+        return self.icon_slot > 0 and t - self.icon_seen_at < 0.5 and self.ignored_streak < 3
 
     @property
     def landed(self):
@@ -168,6 +169,8 @@ class Cooldown:
         """Follow the game's bubble: a bar only counts down once the game shows the move happened,
         and is ready the moment the bubble lights up again (landed parry, cancel, Blade Dancer)."""
         msg = None
+        if self.ignored_streak >= 3:
+            return None  # bubble sync switched off for this bar: it kept disagreeing with real presses
         with self.lock:
             prev, self.icon_state, self.icon_seen_at = self.icon_state, state, t
             if prev is None:
@@ -177,6 +180,7 @@ class Cooldown:
                     self.cool_started = t
                     if self.unconfirmed:
                         self.unconfirmed = False
+                        self.ignored_streak = 0
                     elif t - self.press_at < 0.5 and self.ready_at <= t:
                         self.ready_at = self.press_at + self.span()
                         self.uses += 1
@@ -196,7 +200,11 @@ class Cooldown:
                     self.unconfirmed = False
                     self.ready_at = t
                     self.uses -= 1
+                    self.ignored_streak += 1
                     msg = f"{self.name}: the game ignored that press"
+                    if self.ignored_streak >= 3:
+                        msg = (f"{self.name}: 3 presses in a row never showed on the game's bubble, so it's "
+                               "probably misreading it - bubble sync off for this bar (Settings > Pick the bubbles)")
         return msg
 
     def remaining(self, t):

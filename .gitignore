@@ -16,3 +16,4 @@ __pycache__/
 # packaged app copies
 *.exe
 _internal/
+.venv/

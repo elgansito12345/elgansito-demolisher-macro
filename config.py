@@ -43,7 +43,8 @@ DEFAULTS = {
     "monitor": 1,
     "scan_interval_ms": 50,
     # bar_style "flat" = plain thick parry/dodge bars (flat_width x flat_height px), "card" = with name + time
-    "overlay": {"locked": False, "opacity": 0.92, "bar_style": "flat", "flat_width": 178, "flat_height": 12, "flat_outline": 1},
+    "overlay": {"locked": False, "opacity": 0.92, "bar_style": "flat", "flat_width": 178, "flat_height": 12, "flat_outline": 1,
+                "party_width": 400, "party_bar": 12},
     "widgets": {},
     # Deepwoken's cooldown bubbles under the health bar (1920x1080): bars sync to them.
     "cd_icons": {"enabled": True, "x": [933, 951, 969, 987], "y": [928, 962]},

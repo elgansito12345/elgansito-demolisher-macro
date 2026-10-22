@@ -42,7 +42,8 @@ def read_region(region_bgr):
     gray = cv2.cvtColor(region_bgr, cv2.COLOR_BGR2GRAY)
     thr = max(170.0, float(np.median(gray)) + 45)
     gray = _until_gap(gray, thr)
-    gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    zoom = servername.zoom_for(gray, thr)
+    gray = cv2.resize(gray, None, fx=zoom, fy=zoom, interpolation=cv2.INTER_CUBIC)
     _, ink = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY_INV)
     ink = cv2.copyMakeBorder(ink, 24, 24, 24, 24, cv2.BORDER_CONSTANT, value=255)
     text = servername.run_ocr(ink)
@@ -83,3 +84,40 @@ def read_combat(frame_bgr, skull_box=None, origin=(0, 0)):
     nx, ny = x - ox + w // 2 + dx, y - oy + h // 2 + dy
     number = frame_bgr[max(ny, 0):ny + nh, max(nx, 0):nx + nw]
     return True, read_count(number) if number.size else None
+
+
+TOP_STRIP = [0, 0, 1300, 44]   # the HUD's first text line, wide enough for any screen size
+
+
+def find_columns(strip_bgr, gap=14):
+    """[(x0, x1)] of separate text blocks on the HUD's first line (white text)."""
+    gray = cv2.cvtColor(strip_bgr, cv2.COLOR_BGR2GRAY)
+    thr = max(170.0, float(np.median(gray)) + 45)
+    cols = (gray > thr).sum(axis=0) > 0
+    out, start, run = [], None, 0
+    for x, on in enumerate(list(cols) + [False] * gap):
+        if on:
+            if start is None:
+                start = x
+            run = 0
+        elif start is not None:
+            run += 1
+            if run >= gap:
+                out.append((start, x - run + 1))
+                start, run = None, 0
+    return [(a, b) for a, b in out if b - a >= 25]
+
+
+def auto_server_region(strip_bgr):
+    """Find the server name and region anywhere on the top line: the server is the first block that
+    reads as three capitalised words, the region is the block after it. (server, region)."""
+    blocks = find_columns(strip_bgr)
+    for i, (a, b) in enumerate(blocks[:8]):
+        server = servername.read(strip_bgr[:, max(a - 2, 0):b + 2])
+        if server and len(server.split()) == 3:
+            region = None
+            if i + 1 < len(blocks):
+                c, d = blocks[i + 1]
+                region = read_region(strip_bgr[:, max(c - 2, 0):d + 2])
+            return server, region
+    return None, None

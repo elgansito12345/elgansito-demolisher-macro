@@ -14,7 +14,19 @@ It is **not** a RAT, keylogger or spyware: see [What it can see and send](#what-
    `ElgansitoDemolisherMacro-windows.zip`.
 2. Unzip it anywhere and run `ElgansitoDemolisherMacro.exe`. No install, no Python needed.
 3. Windows SmartScreen may warn because the exe isn't code-signed: click
-   **More info → Run anyway**, or build it yourself from source (below).
+   **More info → Run anyway**.
+
+### If Windows Security deletes or blocks the exe
+
+New, unsigned apps that read the keyboard and send key presses (like any macro tool)
+sometimes get flagged as "potentially unwanted" by reputation alone. It's a false
+positive; the whole source is in this repo. Either:
+
+- **Run it without the exe:** on this page click **Code → Download ZIP**, unzip it,
+  and double-click **`Run from source.bat`**. The first time it installs Python 3.12
+  and the libraries; after that it just starts the app.
+- **Or allow it:** Windows Security → Virus & threat protection → Protection history →
+  the blocked item → **Actions → Allow on device**, then unzip again.
 
 Settings are saved in `config.json` next to the exe.
 
@@ -27,13 +39,15 @@ Settings are saved in `config.json` next to the exe.
 - **Macros:** pick a hotkey and add steps (press key, hold key, click, wait...).
   Built in: **T = Roll parry** and **F = Feint parry** (right click → F).
   Toggle all macros with **F6**. Macros only work while the Roblox window is focused.
-- **Party HP:** each player's app reads their own health bar (and the "N% HEALTH"
+- **Party HP:** (size and bar thickness in Overlays) each player's app reads their own health bar (and the "N% HEALTH"
   text under 14%), Deepwoken server name, region, and the red PvP danger skull
   (with how many players). Friends with the same party code see each other as bars;
   rows pulse red under 50% and show **PVP xN** when someone's in combat.
 - **Z / X / C / V prompts:** pressed for you when they appear (never the teal fakes).
 - **Roblox:** turns macros on when you join Deepwoken, launches it through your
   bootstrapper (Froststrap / Bloxstrap / Fishstrap), and has a FastFlag editor.
+  **Copy all** puts your flags on the clipboard to send to a friend, who presses **Paste JSON**
+  (or use Save to file / Load from file).
 - **Screen rules:** react to a picture or colour on screen with a key press or click.
 
 Defaults are for a 1920x1080 screen. On other sizes, use the **Pick area** buttons.
@@ -66,6 +80,8 @@ Roblox's memory. Text on screen is read with Windows' built-in OCR, offline.
 
 Needs Python 3.12 on Windows.
 
+Double-click `Run from source.bat`, or:
+
 ```
 pip install -r requirements.txt
 python app.py
@@ -97,6 +113,7 @@ Then copy `templates/` next to the exe in `dist/ElgansitoDemolisherMacro/`.
 | `sendinput.py` | sends keys and clicks the way games read them |
 | `fastflags.py` | FastFlags, launching Roblox, start with Windows |
 | `config.py` | settings and defaults |
+| `Run from source.bat` | runs the app from these files, no exe |
 | `templates/prompts/` | pictures of the game's key prompts |
 
 ## License

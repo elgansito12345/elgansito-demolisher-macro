@@ -2,7 +2,7 @@ mss
 opencv-python
 numpy
 pynput
-PySide6
+PySide6-Essentials
 paho-mqtt
 cryptography
 certifi

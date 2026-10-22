@@ -43,6 +43,13 @@ def run_ocr(gray):
     return asyncio.run(_recognize(gray))
 
 
+def zoom_for(gray, thr):
+    """2x for normal-size text (~10 px at 1080p and up); more for the smaller text of smaller screens."""
+    rows = np.nonzero((gray > thr).sum(axis=1) > 0)[0]
+    height = (rows.max() - rows.min() + 1) if rows.size else 15
+    return 2.0 if height >= 9 else float(np.clip(24 / max(height, 1), 2.0, 5.0))
+
+
 def clean(text):
     text = text.replace("I-l", "H").replace("n)", "m")
     text = re.sub(r"(?<=[a-z])(tn|ln)(?=[a-z])", "m", text)
@@ -54,7 +61,7 @@ def read(region_bgr):
     """The server name in the captured region, or None."""
     gray = cv2.cvtColor(region_bgr, cv2.COLOR_BGR2GRAY)
     thr = max(170.0, float(np.median(gray)) + 45)  # works on dark and bright backgrounds
-    gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    gray = cv2.resize(gray, None, fx=(f := zoom_for(gray, thr)), fy=f, interpolation=cv2.INTER_CUBIC)
     _, ink = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY_INV)
     ink = cv2.copyMakeBorder(ink, 24, 24, 24, 24, cv2.BORDER_CONSTANT, value=255)
     return clean(asyncio.run(_recognize(ink)))

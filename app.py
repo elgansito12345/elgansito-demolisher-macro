@@ -5,6 +5,7 @@ straight away and takes effect immediately.
 """
 import copy
 import ctypes
+import json
 import os
 import re
 import sys
@@ -624,6 +625,9 @@ class WidgetsPage(Page):
         outline = spin(ov.get("flat_outline", 1), 0, 10, lambda v: set_ov("flat_outline", v), " px")
         self.body.addWidget(row(QLabel("Parry / Dodge bars"), style))
         self.body.addWidget(row(QLabel("Length"), width, QLabel("Thickness"), height, QLabel("Outline"), outline))
+        pw = spin(ov.get("party_width", 400), 220, 1200, lambda v: set_ov("party_width", v), " px", 10)
+        pb = spin(ov.get("party_bar", 12), 3, 60, lambda v: set_ov("party_bar", v), " px")
+        self.body.addWidget(row(QLabel("Party HP  width"), pw, QLabel("bar thickness"), pb))
         self.grid_host = QWidget()
         self.grid = QGridLayout(self.grid_host)
         self.grid.setContentsMargins(0, 8, 0, 0)
@@ -1534,6 +1538,16 @@ class RobloxPage(Page):
         add_preset = QPushButton("Add preset")
         add_preset.clicked.connect(lambda: self.add_flag(*fastflags.PRESETS[self.preset.currentText()]))
         form.addRow("", row(add_flag, delete, paste, self.preset, add_preset))
+        copy_all = QPushButton("Copy all")
+        copy_all.setToolTip("Copies your flags as JSON - send it to a friend, they press Paste JSON")
+        copy_all.clicked.connect(lambda: self.copy_flags(selected_only=False))
+        copy_sel = QPushButton("Copy selected")
+        copy_sel.clicked.connect(lambda: self.copy_flags(selected_only=True))
+        save_file = QPushButton("Save to file")
+        save_file.clicked.connect(self.export_flags)
+        load_file = QPushButton("Load from file")
+        load_file.clicked.connect(self.import_flags)
+        form.addRow("Share", row(copy_all, copy_sel, save_file, load_file))
         save = QPushButton("Save flags")
         save.setObjectName("Primary")
         save.clicked.connect(self.save_flags)
@@ -1658,6 +1672,45 @@ class RobloxPage(Page):
 
     def mark_dirty(self):
         self.flag_status.setText("unsaved changes")
+
+    def table_flags(self, selected_only=False):
+        rows = sorted({ix.row() for ix in self.table.selectedIndexes()}) if selected_only             else range(self.table.rowCount())
+        flags = {}
+        for i in rows:
+            k = (self.table.item(i, 0).text() if self.table.item(i, 0) else "").strip()
+            if k:
+                flags[k] = self.table.item(i, 1).text() if self.table.item(i, 1) else ""
+        return flags
+
+    def copy_flags(self, selected_only):
+        flags = self.table_flags(selected_only)
+        if not flags:
+            self.flag_status.setText("select some flags first" if selected_only else "no flags to copy")
+            return
+        QApplication.clipboard().setText(json.dumps(flags, indent=2))
+        self.flag_status.setText(f"copied {len(flags)} flags - your friend presses Paste JSON")
+
+    def export_flags(self):
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(self, "Save FastFlags", "fastflags.json", "JSON (*.json)")
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.table_flags(), f, indent=2)
+            self.flag_status.setText(f"saved to {os.path.basename(path)}")
+
+    def import_flags(self):
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Load FastFlags", "", "JSON (*.json);;All files (*)")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                flags = fastflags.parse_json(f.read())
+            for k, v in flags.items():
+                self.add_flag(k, v)
+            self.flag_status.setText(f"loaded {len(flags)} flags - press Save flags to apply")
+        except Exception as e:
+            self.flag_status.setText(f"couldn't load: {e}")
 
     def save_flags(self):
         flags = {}

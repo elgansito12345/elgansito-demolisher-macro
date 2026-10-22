@@ -35,12 +35,19 @@ class IconReader:
         def levels(y):
             return [float(np.percentile(gray[y - HALF:y + HALF + 1, c - HALF:c + HALF + 1], 90)) for c in cols]
 
+        gaps = [(a + b) // 2 for a, b in zip(cols, cols[1:])]
+
+        def panel_dark(y):
+            # Between real bubbles is the HUD's dark panel (~40). A bright floor or snow showing
+            # where the bubbles are expected (other screen sizes) is not, so don't trust those reads.
+            return all(np.percentile(gray[y - 1:y + 2, g - 1:g + 2], 90) < 90 for g in gaps)
+
         # Lock onto the row only when every bubble is lit (text above the row can also be bright,
         # but never at all four bubble columns), and keep it while some are dim.
-        lit = [y for y in range(HALF, h - HALF) if min(levels(y)) >= 210]
+        lit = [y for y in range(HALF, h - HALF) if min(levels(y)) >= 210 and panel_dark(y)]
         if lit:
             self.row = lit[len(lit) // 2]
-        if self.row is None:
+        if self.row is None or not panel_dark(self.row):
             return [None] * len(cols)
         out = []
         for v in levels(self.row):

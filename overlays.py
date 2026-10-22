@@ -230,16 +230,18 @@ class MacrosOverlay(Overlay):
 class PartyOverlay(Overlay):
     """You and each friend as a bar card in the same style as the Parry / Dodge bars."""
     HEADER = 26
-    ROW = 54
 
     def __init__(self, controller, wid):
-        super().__init__(controller, wid, 330, 70)
+        super().__init__(controller, wid, 400, 70)
 
     def paintEvent(self, e):
+        ov = self.controller.cfg["overlay"]
+        self.bar_h = max(int(ov.get("party_bar", 12)), 3)
+        self.ROW = 42 + self.bar_h
         rows = list(self.controller.engine.party)
-        want_h = self.HEADER + 8 + self.ROW * max(len(rows), 1)
-        if self.height() != want_h:
-            self.resize(self.width(), want_h)
+        want = (max(int(ov.get("party_width", 400)), 220), self.HEADER + 8 + self.ROW * max(len(rows), 1))
+        if (self.width(), self.height()) != want:
+            self.resize(*want)
             return
         p = QPainter(self)
         self.background(p)
@@ -272,7 +274,9 @@ class PartyOverlay(Overlay):
             p.setFont(QFont("Segoe UI", 10, QFont.DemiBold))
             p.setPen(TEXT if online else MUTED)
             label = name + ("  (you)" if is_you else "")
-            p.drawText(QRectF(14, y, self.width() - 100, 18), Qt.AlignVCenter, label)
+            room = self.width() - 100 - (60 if online and row.get("combat") else 0)
+            label = p.fontMetrics().elidedText(label, Qt.ElideRight, room)
+            p.drawText(QRectF(14, y, room, 18), Qt.AlignVCenter, label)
             if online and row.get("combat"):
                 # In PvP combat: a red tag with how many players are on them.
                 x = 14 + p.fontMetrics().horizontalAdvance(label) + 8
@@ -303,15 +307,25 @@ class PartyOverlay(Overlay):
                 if row.get("same") and not is_you:
                     text += "  ·  same server"
                 p.setPen(READY if row.get("same") else MUTED)
+                text = p.fontMetrics().elidedText(text, Qt.ElideRight, self.width() - 28)
                 p.drawText(QRectF(14, y + 17, self.width() - 28, 14), Qt.AlignVCenter, text)
-            bar = QRectF(14, y + 34, self.width() - 28, 8)
-            track = QPainterPath()
-            track.addRoundedRect(bar, 4, 4)
-            p.fillPath(track, QColor(38, 43, 54))
-            if online and frac:
-                fill = QPainterPath()
-                fill.addRoundedRect(QRectF(bar.x(), bar.y(), bar.width() * frac, bar.height()), 4, 4)
-                p.fillPath(fill, colour)
+            bar = QRectF(14, y + 34, self.width() - 28, self.bar_h)
+            if ov.get("bar_style", "flat") == "flat":
+                # Same look as the flat Parry / Dodge lines: square, solid, thin dark outline.
+                p.fillRect(bar, QColor(30, 34, 42))
+                if online and frac:
+                    p.fillRect(QRectF(bar.x(), bar.y(), bar.width() * frac, bar.height()), colour)
+                p.setPen(QPen(QColor(8, 10, 14), 1))
+                p.setBrush(Qt.NoBrush)
+                p.drawRect(bar)
+            else:
+                track = QPainterPath()
+                track.addRoundedRect(bar, 4, 4)
+                p.fillPath(track, QColor(38, 43, 54))
+                if online and frac:
+                    fill = QPainterPath()
+                    fill.addRoundedRect(QRectF(bar.x(), bar.y(), bar.width() * frac, bar.height()), 4, 4)
+                    p.fillPath(fill, colour)
 
 
 def make_overlay(controller, wid):
