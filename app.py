@@ -1467,6 +1467,26 @@ class SettingsPage(Page):
         form.addRow("", folder)
         self.body.addWidget(box)
 
+        box, form = form_group("Profiles")
+        form.addRow(hint("Each profile is a whole set of settings: bars, macros, overlays, party. The one you're on "
+                         "saves as you change things; switch with the box at the bottom of the sidebar."))
+        self.profiles = QListWidget()
+        self.profiles.setFixedHeight(120)
+        form.addRow(self.profiles)
+        new = QPushButton("New from current")
+        new.clicked.connect(lambda: self.profile_action("new"))
+        load = QPushButton("Switch to selected")
+        load.setObjectName("Primary")
+        load.clicked.connect(lambda: self.profile_action("switch"))
+        rename = QPushButton("Rename")
+        rename.clicked.connect(lambda: self.profile_action("rename"))
+        delete = QPushButton("Delete")
+        delete.setObjectName("Danger")
+        delete.clicked.connect(lambda: self.profile_action("delete"))
+        form.addRow("", row(load, new, rename, delete))
+        self.body.addWidget(box)
+        self.refresh_profiles()
+
         box, form = form_group("Your settings")
         form.addRow(hint(f"Everything saves automatically to {config.CONFIG_PATH}. That folder isn't touched by "
                          "updates, so a new download or re-unzipping keeps all your macros, bars and party "
@@ -1508,6 +1528,42 @@ class SettingsPage(Page):
         self.body.addWidget(box)
         self.body.addStretch(1)
         self.grab_timer = QTimer(self, interval=100, timeout=self.poll_window)
+
+    def refresh_profiles(self):
+        self.profiles.clear()
+        active = config.active_profile()
+        for name in config.list_profiles():
+            self.profiles.addItem(f"{name}   (active)" if name == active else name)
+
+    def selected_profile(self):
+        item = self.profiles.currentItem()
+        return item.text().replace("   (active)", "") if item else None
+
+    def profile_action(self, action):
+        from PySide6.QtWidgets import QMessageBox
+        name = self.selected_profile()
+        if action == "new":
+            new, ok = QInputDialog.getText(self, "New profile", "Name for a copy of the current settings:")
+            if ok and new.strip():
+                self.c.new_profile(new.strip())
+            return
+        if not name:
+            QMessageBox.information(self, "Profiles", "Pick a profile in the list first.")
+            return
+        try:
+            if action == "switch":
+                self.c.switch_profile(name)
+            elif action == "rename":
+                new, ok = QInputDialog.getText(self, "Rename profile", "New name:", text=name)
+                if ok and new.strip():
+                    config.rename_profile(name, new.strip())
+                    self.c.rebuild_window()
+            elif action == "delete":
+                if QMessageBox.question(self, "Delete profile", f"Delete the profile '{name}'?") == QMessageBox.Yes:
+                    config.delete_profile(name)
+                    self.c.rebuild_window()
+        except ValueError as e:
+            QMessageBox.warning(self, "Profiles", str(e))
 
     def export_settings(self):
         from PySide6.QtWidgets import QFileDialog
@@ -1928,7 +1984,7 @@ class MainWindow(QMainWindow):
             if i == 0:
                 b.setChecked(True)
         side_lay.addStretch(1)
-        side_lay.addWidget(hint("Changes save automatically."))
+        side_lay.addWidget(ProfileSwitcher(controller))
         main.addWidget(side)
         main.addWidget(self.stack, 1)
         outer.addLayout(main, 1)
@@ -1948,8 +2004,50 @@ class MainWindow(QMainWindow):
         return next(p for p in self.pages if isinstance(p, cls))
 
     def closeEvent(self, e):
+        if getattr(self, "closing_for_rebuild", False):
+            e.accept()
+            return
         self.c.quit()
         e.accept()
+
+
+class ProfileSwitcher(QWidget):
+    """Bottom of the sidebar: pick a saved profile to switch to, or save the current settings as a new one."""
+
+    def __init__(self, controller):
+        super().__init__()
+        self.c = controller
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        lay.addWidget(hint("Profile (saves automatically)"))
+        self.box = QComboBox()
+        self.box.setToolTip("Switch to another saved set of settings")
+        self.refresh()
+        self.box.currentIndexChanged.connect(self.switch)
+        lay.addWidget(self.box)
+        save_as = QPushButton("+ Save as new profile")
+        save_as.clicked.connect(self.save_as)
+        lay.addWidget(save_as)
+
+    def refresh(self):
+        self.box.blockSignals(True)
+        self.box.clear()
+        active = config.active_profile()
+        for name in config.list_profiles():
+            self.box.addItem(name)
+        self.box.setCurrentText(active)
+        self.box.blockSignals(False)
+
+    def switch(self):
+        name = self.box.currentText()
+        if name and name != config.active_profile():
+            QTimer.singleShot(0, lambda: self.c.switch_profile(name))
+
+    def save_as(self):
+        name, ok = QInputDialog.getText(self, "Save as new profile", "Name for these settings (e.g. PvP, Grinding):")
+        if ok and name.strip():
+            self.c.new_profile(name.strip())
 
 
 class Controller:
@@ -2099,6 +2197,58 @@ class Controller:
             self.snapshots[name] = (path, origin)
             if self.waiting_snapshot:
                 self.waiting_snapshot.snapshot_ready(name)
+
+    # profiles
+    def new_profile(self, name, switch=True):
+        """Save the current settings as a new profile (and switch to it)."""
+        from PySide6.QtWidgets import QMessageBox
+        self.flush()
+        try:
+            name = config.create_profile(name, self.cfg)
+        except ValueError as e:
+            QMessageBox.warning(self.window, "Profile", str(e))
+            return None
+        if switch:
+            config.set_active_profile(name)
+            self.engine.log(f"saved settings as profile '{name}'")
+            self.rebuild_window()
+        return name
+
+    def switch_profile(self, name):
+        """Load another profile's settings live: bars, macros, overlays and every page."""
+        from PySide6.QtWidgets import QMessageBox
+        self.flush()  # the profile you're leaving keeps its latest changes
+        try:
+            cfg = config.load_profile(name)
+        except Exception as e:
+            QMessageBox.warning(self.window, "Profile", f"Couldn't load '{name}': {e}")
+            self.rebuild_window()
+            return
+        config.set_active_profile(name)
+        self.cfg = cfg
+        config.save(cfg)
+        self.engine.apply(cfg)
+        for ov in list(self.overlays.values()):
+            ov.close()
+            ov.deleteLater()
+        self.overlays = {}
+        for wid, state in list(self.cfg["widgets"].items()):
+            if state.get("visible"):
+                self.show_overlay(wid, save=False)
+        self.engine.log(f"switched to profile '{name}'")
+        self.rebuild_window()
+
+    def rebuild_window(self):
+        """Recreate the control panel so every page shows the current profile."""
+        old = self.window
+        geometry, page = old.geometry(), old.stack.currentIndex()
+        self.window = MainWindow(self)
+        self.window.setGeometry(geometry)
+        self.window.show()
+        self.window.go(page)
+        old.closing_for_rebuild = True
+        old.hide()
+        old.deleteLater()
 
     def restart(self):
         from PySide6.QtCore import QProcess

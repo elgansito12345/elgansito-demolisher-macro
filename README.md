@@ -28,7 +28,7 @@ positive; the whole source is in this repo. Either:
 - **Or allow it:** Windows Security → Virus & threat protection → Protection history →
   the blocked item → **Actions → Allow on device**, then unzip again.
 
-Settings are saved in `config.json` next to the exe.
+Settings are saved in `%APPDATA%\ElgansitoDemolisher`, so updating or re-unzipping keeps them.
 
 ## What it does
 
@@ -55,6 +55,16 @@ Defaults are for a 1920x1080 screen. On other sizes, use the **Pick area** butto
 opens on the monitor the game is on and works with two monitors and Windows scaling (2K at 125%, 150%...).
 
 Clicks have a soft sound and a small animation; both can be turned off in Settings → Interface.
+
+## Profiles
+
+Save different setups and switch between them, for example *PvP* and *Grinding*:
+
+- Bottom of the sidebar: **+ Save as new profile** saves everything you have now under a name,
+  and the dropdown switches between profiles instantly (bars, macros, overlays, party settings).
+- The profile you're on saves itself as you change things.
+- **Settings → Profiles** to switch, make a copy, rename or delete.
+- **Settings → Your settings → Export / Import** to back up or share one.
 
 ## Party HP setup
 

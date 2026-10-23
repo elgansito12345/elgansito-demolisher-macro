@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+import re
 import sys
 
 # The app's own files (exe, shipped pictures) live in HERE. Your settings and recordings live in
@@ -276,12 +277,98 @@ def load():
     return cfg
 
 
-def save(cfg):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tmp = CONFIG_PATH + ".tmp"
+def _write(path, cfg):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
-    os.replace(tmp, CONFIG_PATH)
+    os.replace(tmp, path)
+
+
+def save(cfg):
+    """Save the live settings, and keep the active profile in step with them."""
+    _write(CONFIG_PATH, cfg)
+    _write(profile_path(active_profile()), cfg)
+
+
+# ---- profiles --------------------------------------------------------------------
+# Named copies of the whole settings. The active one updates itself as you change things;
+# switching loads another one into the live settings.
+
+PROFILE_DIR = os.path.join(DATA_DIR, "profiles")
+STATE_PATH = os.path.join(DATA_DIR, "state.json")
+DEFAULT_PROFILE = "Default"
+
+
+def _clean_name(name):
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", str(name)).strip().strip(".")
+    return name[:40]
+
+
+def profile_path(name):
+    return os.path.join(PROFILE_DIR, _clean_name(name) + ".json")
+
+
+def active_profile():
+    try:
+        with open(STATE_PATH, encoding="utf-8") as f:
+            name = json.load(f).get("profile")
+        if name and os.path.exists(profile_path(name)):
+            return name
+    except (OSError, ValueError):
+        pass
+    return DEFAULT_PROFILE
+
+
+def set_active_profile(name):
+    _write(STATE_PATH, {"profile": _clean_name(name)})
+
+
+def list_profiles():
+    names = []
+    if os.path.isdir(PROFILE_DIR):
+        names = [os.path.splitext(f)[0] for f in os.listdir(PROFILE_DIR) if f.endswith(".json")]
+    active = active_profile()
+    if active not in names:
+        names.append(active)
+    return sorted(names, key=str.lower)
+
+
+def load_profile(name):
+    with open(profile_path(name), encoding="utf-8-sig") as f:
+        return normalise(json.load(f))
+
+
+def create_profile(name, cfg):
+    """Save `cfg` as a new profile. Returns the name it was saved under, or raises ValueError."""
+    name = _clean_name(name)
+    if not name:
+        raise ValueError("give the profile a name")
+    if os.path.exists(profile_path(name)):
+        raise ValueError(f"there's already a profile called {name}")
+    _write(profile_path(name), cfg)
+    return name
+
+
+def rename_profile(old, new):
+    new = _clean_name(new)
+    if not new:
+        raise ValueError("give the profile a name")
+    if new.lower() != old.lower() and os.path.exists(profile_path(new)):
+        raise ValueError(f"there's already a profile called {new}")
+    was_active = active_profile() == old
+    os.replace(profile_path(old), profile_path(new))
+    if was_active:
+        set_active_profile(new)
+    return new
+
+
+def delete_profile(name):
+    if len(list_profiles()) <= 1:
+        raise ValueError("you need at least one profile")
+    if name == active_profile():
+        raise ValueError("switch to another profile first")
+    os.remove(profile_path(name))
 
 
 def resolve(path):
