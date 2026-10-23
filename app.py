@@ -36,57 +36,94 @@ import fastflags
 import overlays
 import party
 import sendinput
+import audio
+import builder
+import notify
 import uifx
 
 STYLE = """
-* { font-family: "Segoe UI"; font-size: 10pt; color: #e6e8ee; }
-QMainWindow, #Body { background: #14161b; }
-#TitleBar { background: #0f1115; }
-#Sidebar { background: #0f1115; }
+* { font-family: "Bahnschrift", "Segoe UI"; font-size: 10pt; color: #c9d3dc; }
+QMainWindow { background: #0a0e13; }
+#Body { background: transparent; }
+#TitleBar { background: #070a0e; border-bottom: 1px solid #16232b; }
+#Sidebar { background: rgba(8, 12, 17, 235); border-right: 1px solid #16232b; }
+#Brand { background: #f3e600; color: #0a0e13; font-weight: 700; font-size: 11pt; padding: 0 18px; }
+#NetLink { color: #5f7380; font-family: "Consolas"; font-size: 9pt; padding-left: 14px; }
 #AppTitle { font-size: 11pt; font-weight: 600; }
-#PageTitle { font-size: 16pt; font-weight: 600; }
-#Hint, .hint { color: #8b93a5; }
+#PageKicker { color: #ff3c5f; font-family: "Consolas"; font-size: 9pt; }
+#PageTitle { font-size: 22pt; font-weight: 700; color: #ffffff; }
+#PageMeta { color: #5f7380; font-family: "Consolas"; font-size: 8pt; }
+#Hint, .hint { color: #6b808c; }
 QLabel { background: transparent; }
-QPushButton { background: #232836; border: 1px solid #2e3445; border-radius: 7px; padding: 6px 12px; }
-QPushButton:hover { background: #2b3142; }
-QPushButton:pressed { background: #1d2230; }
-QPushButton:disabled { color: #5c6375; }
-QPushButton#Primary { background: #3b82f6; border: none; color: white; font-weight: 600; }
-QPushButton#Primary:hover { background: #4b8ff8; }
-QPushButton#Danger { background: transparent; border: 1px solid #5b2730; color: #f87171; }
-QPushButton#Nav { text-align: left; padding: 9px 14px; border: none; border-radius: 8px;
-                  background: transparent; color: #8b93a5; font-weight: 600; }
-QPushButton#Nav:hover { color: #e6e8ee; background: #191c24; }
-QPushButton#Nav:checked { color: #ffffff; background: #222838; }
-QPushButton#TitleBtn { background: transparent; border: none; border-radius: 0; padding: 4px 14px; font-size: 11pt; }
-QPushButton#TitleBtn:hover { background: #222838; }
-QPushButton#CloseBtn { background: transparent; border: none; border-radius: 0; padding: 4px 14px; font-size: 11pt; }
+QPushButton { background: rgba(12, 18, 24, 220); border: 1px solid #1f3540; border-radius: 0; padding: 6px 12px; color: #c9d3dc; }
+QPushButton:hover { border-color: #2de2e6; color: #ffffff; }
+QPushButton:pressed { background: #0f1c24; }
+QPushButton:disabled { color: #3d4c55; border-color: #16232b; }
+QPushButton#Primary { background: #f3e600; border: none; color: #0a0e13; font-weight: 700; }
+QPushButton#Primary:hover { background: #fff35c; }
+QPushButton#Danger { background: transparent; border: 1px solid #5c1f2c; color: #ff3c5f; }
+QPushButton#Danger:hover { border-color: #ff3c5f; }
+QPushButton#Nav { text-align: left; padding: 8px 14px; border: none; border-left: 3px solid transparent;
+                  background: transparent; color: #6b808c; font-weight: 600; font-family: "Consolas"; }
+QPushButton#Nav:hover { color: #ffffff; border-left: 3px solid #2de2e6; background: rgba(45, 226, 230, 18); }
+QPushButton#Nav:checked { color: #0a0e13; background: #f3e600; border-left: 3px solid #f3e600; }
+QPushButton#Dashed { border: 1px dashed #2a434f; color: #6b808c; font-family: "Consolas"; font-size: 9pt; }
+QPushButton#Dashed:hover { border-color: #2de2e6; color: #2de2e6; }
+QPushButton#TitleBtn { background: transparent; border: none; padding: 4px 14px; font-size: 11pt; }
+QPushButton#TitleBtn:hover { background: #16232b; }
+QPushButton#CloseBtn { background: transparent; border: none; padding: 4px 14px; font-size: 11pt; }
 QPushButton#CloseBtn:hover { background: #c42b1c; }
-QPushButton#Toggle { font-size: 13pt; font-weight: 700; padding: 14px; border-radius: 12px; }
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QListWidget {
-    background: #1b1f29; border: 1px solid #2e3445; border-radius: 7px; padding: 5px 7px; }
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus { border-color: #3b82f6; }
-QComboBox QAbstractItemView { background: #1b1f29; selection-background-color: #2b3550; border: 1px solid #2e3445; }
+QPushButton#Toggle { font-size: 13pt; font-weight: 700; padding: 14px; }
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QTextEdit, QListWidget {
+    background: rgba(9, 14, 19, 230); border: 1px solid #1b2a33; border-radius: 0; padding: 5px 7px; color: #c9d3dc; }
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus { border-color: #2de2e6; }
+QComboBox#ProfileBox { border: 1px solid #2de2e6; color: #2de2e6; font-family: "Consolas"; font-weight: 700; padding: 7px 9px; }
+QComboBox QAbstractItemView { background: #0c1218; selection-background-color: #163039; border: 1px solid #1f3540; }
 QListWidget { padding: 4px; outline: 0; }
 *:focus { outline: none; }
 QPushButton:focus { outline: none; }
-#SideTitle { font-size: 10pt; font-weight: 700; color: #ffffff; }
-QListWidget::item { padding: 8px; border-radius: 6px; }
-QListWidget::item:selected { background: #2b3550; color: white; }
-QGroupBox { border: 1px solid #262b38; border-radius: 10px; margin-top: 16px; padding: 12px 10px 10px 10px;
-            background: #171a21; font-weight: 600; }
-QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; color: #aab2c3; }
-QGroupBox::indicator, QCheckBox::indicator { width: 16px; height: 16px; }
+#SideTitle { font-size: 11pt; font-weight: 700; color: #ffffff; }
+#SideTag { color: #2de2e6; font-family: "Consolas"; font-size: 8pt; }
+#SideCaption { color: #5f7380; font-family: "Consolas"; font-size: 8pt; }
+#AutoSave { color: #2de2e6; font-family: "Consolas"; font-size: 8pt; }
+QListWidget::item { padding: 8px; }
+QListWidget::item:selected { background: #163039; color: #ffffff; }
+QGroupBox { border: 1px solid #1b2a33; border-radius: 0; margin-top: 16px; padding: 12px 10px 10px 10px;
+            background: rgba(11, 16, 22, 215); font-weight: 600; }
+QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; color: #2de2e6; font-family: "Consolas"; }
+QGroupBox::indicator, QCheckBox::indicator { width: 15px; height: 15px; }
+QCheckBox::indicator { border: 1px solid #2a434f; background: #0a0f14; }
+QCheckBox::indicator:checked, QGroupBox::indicator:checked { background: #f3e600; border: 1px solid #f3e600; }
 QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; border: none; }
-QScrollBar:vertical { background: transparent; width: 10px; }
-QScrollBar::handle:vertical { background: #2e3445; border-radius: 5px; min-height: 30px; }
+QScrollBar:vertical { background: transparent; width: 8px; }
+QScrollBar::handle:vertical { background: #1f3540; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: #2de2e6; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: none; }
-QSlider::groove:horizontal { height: 4px; background: #2e3445; border-radius: 2px; }
-QSlider::handle:horizontal { background: #3b82f6; width: 14px; margin: -6px 0; border-radius: 7px; }
-#Card { background: #1b1f29; border: 1px solid #2e3445; border-radius: 12px; }
-#Card:hover { border-color: #3b82f6; }
-#StepRow { background: #1b1f29; border: 1px solid #262b38; border-radius: 8px; }
+QSlider::groove:horizontal { height: 3px; background: #1f3540; }
+QSlider::handle:horizontal { background: #f3e600; width: 12px; margin: -6px 0; }
+QTableWidget { gridline-color: #16232b; }
+QHeaderView::section { background: #0c1218; border: none; padding: 6px; color: #2de2e6; font-family: "Consolas"; }
+#Card { background: rgba(11, 16, 22, 220); border: 1px solid #1b2a33; }
+#Card:hover { border-color: #2de2e6; }
+#StepRow { background: rgba(11, 16, 22, 220); border: 1px solid #1b2a33; }
+#StatusBanner { background: #f3e600; }
+#StatusBanner[armed="false"] { background: rgba(11, 16, 22, 230); border: 1px solid #ff3c5f; }
+#BannerKicker { color: #0a0e13; font-family: "Consolas"; font-size: 9pt; font-weight: 700; }
+#BannerTitle { color: #0a0e13; font-size: 24pt; font-weight: 700; }
+#BannerMeta { color: #0a0e13; font-family: "Consolas"; font-size: 8pt; }
+#BannerKey { color: #0a0e13; border: 2px solid #0a0e13; font-family: "Consolas"; font-size: 12pt; font-weight: 700; padding: 8px 12px; }
+#StatusBanner[armed="false"] #BannerKicker, #StatusBanner[armed="false"] #BannerTitle,
+#StatusBanner[armed="false"] #BannerMeta { color: #ff3c5f; }
+#StatusBanner[armed="false"] #BannerKey { color: #ff3c5f; border-color: #ff3c5f; }
+#InfoCard { background: rgba(11, 16, 22, 225); border: 1px solid #1b2a33; border-left: 2px solid #1f3540; }
+#InfoLabel { color: #5f7380; font-family: "Consolas"; font-size: 8pt; }
+#InfoValue { color: #ffffff; font-size: 12pt; font-weight: 600; }
+#LogPanel { background: rgba(9, 13, 18, 230); border: 1px solid #1b2a33; }
+#LogTitle { color: #2de2e6; font-family: "Consolas"; font-weight: 700; }
+#LogMeta { color: #5f7380; font-family: "Consolas"; font-size: 8pt; }
+QTextEdit#Log { background: transparent; border: none; font-family: "Consolas"; font-size: 9pt; }
+#Pfp { border: 1px solid #2de2e6; background: #0c1218; color: #5f7380; font-family: "Consolas"; font-size: 8pt; }
 """
 
 
@@ -539,22 +576,40 @@ class DetectorEditor(QWidget):
 class Page(QWidget):
     title = ""
     subtitle = ""
+    code = "MODULE"
 
     def __init__(self, controller):
         super().__init__()
         self.c = controller
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(26, 20, 26, 20)
-        outer.setSpacing(4)
-        t = QLabel(self.title)
+        outer.setContentsMargins(26, 18, 26, 18)
+        outer.setSpacing(2)
+        top = QHBoxLayout()
+        heads = QVBoxLayout()
+        heads.setSpacing(0)
+        self.kicker = QLabel(f"// {self.code}")
+        self.kicker.setObjectName("PageKicker")
+        heads.addWidget(self.kicker)
+        t = QLabel(self.title.upper() + "<span style='color:#f3e600'>_</span>")
         t.setObjectName("PageTitle")
-        outer.addWidget(t)
+        t.setTextFormat(Qt.RichText)
+        heads.addWidget(t)
+        top.addLayout(heads)
+        top.addStretch(1)
+        self.meta = QLabel("")
+        self.meta.setObjectName("PageMeta")
+        self.meta.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        top.addWidget(self.meta)
+        outer.addLayout(top)
         if self.subtitle:
             outer.addWidget(hint(self.subtitle))
         outer.addSpacing(10)
         self.body = QVBoxLayout()
         self.body.setSpacing(10)
         outer.addLayout(self.body, 1)
+
+    def set_number(self, n):
+        self.kicker.setText(f"{n:02d} // {self.code}")
 
     def shown(self):
         pass
@@ -563,53 +618,190 @@ class Page(QWidget):
         pass
 
 
+LOG_TAGS = (
+    ("macro", "MACRO", "#f3e600"), ("party", "PARTY", "#2de2e6"), ("profile", "PROFILE", "#ff3c5f"),
+    ("parry", "COMBAT", "#3ee67a"), ("dodge", "COMBAT", "#3ee67a"), ("landed", "COMBAT", "#3ee67a"),
+    ("builder", "BUILDER", "#c084fc"), ("talent", "BUILDER", "#c084fc"), ("music", "MUSIC", "#fb7185"),
+    ("warning", "WARN", "#ff3c5f"), ("error", "WARN", "#ff3c5f"), ("failed", "WARN", "#ff3c5f"),
+)
+
+
+def log_html(line):
+    """'12:00:01  macros ON' -> coloured '12:00:01  [MACRO]  macros on' like a terminal."""
+    stamp, _, msg = line.partition("  ")
+    low = msg.lower()
+    tag, colour = "SYS", "#6b808c"
+    for word, t, c in LOG_TAGS:
+        if word in low:
+            tag, colour = t, c
+            break
+    esc = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    pad = "&nbsp;" * (10 - len(tag))  # line the messages up after tags of different lengths
+    return (f"<span style='color:#5f7380'>{stamp}</span>&nbsp;&nbsp;&nbsp;"
+            f"<span style='color:{colour}'>[{tag}]</span>{pad}<span style='color:#c9d3dc'>{esc}</span>")
+
+
+class InfoCard(QFrame):
+    def __init__(self, label):
+        super().__init__()
+        self.setObjectName("InfoCard")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 8, 12, 10)
+        lay.setSpacing(2)
+        lab = QLabel(label)
+        lab.setObjectName("InfoLabel")
+        self.value = QLabel("-")
+        self.value.setObjectName("InfoValue")
+        self.value.setTextFormat(Qt.RichText)
+        lay.addWidget(lab)
+        lay.addWidget(self.value)
+
+
+class StatusBanner(QFrame):
+    """The big yellow MACROS ONLINE panel; click it to arm or disarm."""
+
+    def __init__(self, controller):
+        super().__init__()
+        self.c = controller
+        self.setObjectName("StatusBanner")
+        self.setCursor(Qt.PointingHandCursor)
+        self.setMinimumHeight(110)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(22, 14, 22, 14)
+        left = QVBoxLayout()
+        self.kicker = QLabel()
+        self.kicker.setObjectName("BannerKicker")
+        self.title = QLabel()
+        self.title.setObjectName("BannerTitle")
+        left.addWidget(self.kicker)
+        left.addWidget(self.title)
+        lay.addLayout(left)
+        lay.addStretch(1)
+        right = QVBoxLayout()
+        keyrow = QHBoxLayout()
+        press = QLabel("PRESS")
+        press.setObjectName("BannerMeta")
+        self.press = press
+        self.key = QLabel()
+        self.key.setObjectName("BannerKey")
+        keyrow.addWidget(press)
+        keyrow.addSpacing(10)
+        keyrow.addWidget(self.key)
+        right.addLayout(keyrow)
+        self.meta = QLabel()
+        self.meta.setObjectName("BannerMeta")
+        self.meta.setAlignment(Qt.AlignRight)
+        right.addWidget(self.meta)
+        lay.addLayout(right)
+        self.armed = None
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            eng = self.c.engine
+            eng.set_active(not eng.active)
+            uifx.pulse(self)
+            self.c.click_sound()
+
+    def refresh(self):
+        on = self.c.engine.active
+        key = nice_key(self.c.cfg.get("toggle_key")).upper()
+        self.key.setText(key)
+        self.meta.setText(f"SYS.ACTIVE // 0x{key}" if on else "SYS.IDLE // CLICK TO ARM")
+        if on != self.armed:
+            self.armed = on
+            self.kicker.setText("■ STATUS: ARMED" if on else "■ STATUS: SAFE")
+            self.title.setText("MACROS ONLINE" if on else "MACROS OFFLINE")
+            self.setProperty("armed", "true" if on else "false")
+            for w in (self, self.kicker, self.title, self.meta, self.key, self.press):
+                w.style().unpolish(w)
+                w.style().polish(w)
+
+
 class HomePage(Page):
     title = "Home"
-    subtitle = "Turn macros on, then switch to the game. Everything also works from the overlays."
+    code = "CONTROL"
 
     def __init__(self, controller):
         super().__init__(controller)
-        self.toggle = QPushButton()
-        self.toggle.setObjectName("Toggle")
-        self.toggle.clicked.connect(lambda: self.c.engine.set_active(not self.c.engine.active))
-        self.body.addWidget(self.toggle)
-        self.status = QLabel()
-        self.body.addWidget(self.status)
-        self.stats = QLabel()
-        self.stats.setObjectName("Hint")
-        self.body.addWidget(self.stats)
-        self.body.addWidget(QLabel("Activity"))
-        self.log = QPlainTextEdit()
+        self.started = time.time()
+        self.banner = StatusBanner(controller)
+        self.body.addWidget(self.banner)
+        cards = QHBoxLayout()
+        cards.setSpacing(0)
+        self.game_card, self.target_card, self.party_card = (InfoCard("GAME_WINDOW"), InfoCard("TARGET_DETECTED"),
+                                                             InfoCard("PARTY_LINK"))
+        for card in (self.game_card, self.target_card, self.party_card):
+            cards.addWidget(card)
+        self.body.addLayout(cards)
+        panel = QFrame()
+        panel.setObjectName("LogPanel")
+        pl = QVBoxLayout(panel)
+        pl.setContentsMargins(14, 10, 14, 10)
+        head = QHBoxLayout()
+        title = QLabel("&gt; ACTIVITY_LOG")
+        title.setObjectName("LogTitle")
+        title.setTextFormat(Qt.RichText)
+        head.addWidget(title)
+        head.addStretch(1)
+        self.count = QLabel("00 ENTRIES")
+        self.count.setObjectName("LogMeta")
+        head.addWidget(self.count)
+        purge = QPushButton("[PURGE]")
+        purge.setFlat(True)
+        purge.setStyleSheet("border: none; color: #5f7380; font-family: Consolas; font-size: 8pt; padding: 2px 6px;")
+        purge.clicked.connect(self.purge)
+        head.addWidget(purge)
+        pl.addLayout(head)
+        line = QFrame()
+        line.setFixedHeight(1)
+        line.setStyleSheet("background: #16232b;")
+        pl.addWidget(line)
+        from PySide6.QtWidgets import QTextEdit
+        self.log = QTextEdit()
+        self.log.setObjectName("Log")
         self.log.setReadOnly(True)
-        self.log.setMaximumBlockCount(400)
-        self.body.addWidget(self.log, 1)
+        self.log.document().setMaximumBlockCount(400)
+        pl.addWidget(self.log, 1)
+        self.cursor = QLabel("&gt; <span style='color:#2de2e6'>█</span>")
+        self.cursor.setTextFormat(Qt.RichText)
+        self.cursor.setStyleSheet("font-family: Consolas; color: #2de2e6;")
+        pl.addWidget(self.cursor)
+        self.body.addWidget(panel, 1)
         self.seq = 0
+        self.lines = 0
+        self.blink = 0
+
+    def purge(self):
+        self.log.clear()
+        self.lines = 0
 
     def tick(self):
         eng = self.c.engine
-        on = eng.active
-        key = nice_key(self.c.cfg.get("toggle_key"))
-        self.toggle.setText(f"Macros {'ON' if on else 'OFF'}   ({key} to toggle)")
-        self.toggle.setStyleSheet("background: #15803d; border: none;" if on else "")
-        game = self.c.cfg.get("game_window") or "any window"
-        focus = "focused" if eng.game_focused() else "not focused"
-        playing = eng.current_game() or (f"place {eng.place_id}" if eng.universe_id else "not in a game")
-        self.status.setText(f"Game window: <b>{game}</b> ({focus})     Roblox: <b>{playing}</b>")
-        parts = []
-        for cd in eng.cooldowns:
-            bits = [f"used {cd.uses}"]
-            if cd.cancel_key:
-                bits.append(f"cancelled {cd.cancels}")
-            for r in cd.resets:
-                if r.armed or r.hits:
-                    bits.append(f"{r.name.lower()} {r.hits}")
-            parts.append(f"{cd.name}: " + ", ".join(bits))
-        for m in eng.macros:
-            parts.append(f"{m.name}: ran {m.runs}")
-        self.stats.setText("     ".join(parts))
+        self.banner.refresh()
+        up = int(time.time() - self.started)
+        self.meta.setText(f"SESSION  <span style='color:#ffffff'>{up // 3600:02d}:{up // 60 % 60:02d}:{up % 60:02d}</span>"
+                          "<br>ARM MACROS → JACK INTO GAME")
+        self.meta.setTextFormat(Qt.RichText)
+        game = (self.c.cfg.get("game_window") or "any window").upper()
+        focused = eng.game_focused()
+        tag = "<span style='color:#3ee67a; font-size:8pt'> [FOCUSED]</span>" if focused else \
+            "<span style='color:#ff3c5f; font-size:8pt'> [NOT FOCUSED]</span>"
+        self.game_card.value.setText(game + tag)
+        playing = eng.current_game() or (f"PLACE {eng.place_id}" if eng.universe_id else "NONE")
+        self.target_card.value.setText(playing.upper())
+        if self.c.cfg.get("party", {}).get("enabled"):
+            st = eng.party_link.status
+            colour = "#2de2e6" if st == "connected" else "#f3e600"
+            self.party_card.value.setText(f"<span style='color:{colour}'>■ {st.upper()}</span>")
+        else:
+            self.party_card.value.setText("<span style='color:#5f7380'>■ OFF</span>")
         for seq, line in eng.log.since(self.seq):
             self.seq = seq
-            self.log.appendPlainText(line)
+            self.log.append(log_html(line))
+            self.lines += 1
+        self.count.setText(f"{min(self.lines, 400):02d} ENTRIES")
+        self.blink = (self.blink + 1) % 10
+        self.cursor.setText("&gt; " + ("<span style='color:#2de2e6'>█</span>" if self.blink < 5 else ""))
 
 
 class WidgetCard(QFrame):
@@ -663,11 +855,22 @@ class WidgetCard(QFrame):
 
 class WidgetsPage(Page):
     title = "Overlays"
+    code = "DISPLAY"
     subtitle = ("Drag a card out of this window and drop it anywhere on your screen. Drag an overlay to move it, "
                 "right-click it to hide it.")
 
     def __init__(self, controller):
         super().__init__(controller)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        holder = QWidget()
+        inner = QVBoxLayout(holder)
+        inner.setContentsMargins(0, 0, 14, 0)
+        inner.setSpacing(10)
+        scroll.setWidget(holder)
+        self.body.addWidget(scroll, 1)
+        self.body = inner
         ov = self.c.cfg["overlay"]
         self.lock = QCheckBox("Lock overlays (clicks go straight through to the game)")
         self.lock.setChecked(ov.get("locked", False))
@@ -683,13 +886,84 @@ class WidgetsPage(Page):
         def set_ov(key, value):
             self.c.cfg["overlay"][key] = value
             self.c.changed(apply=False)
-        style = combo({"flat": "Flat bars (no text)", "card": "Cards (name + time)"}, ov.get("bar_style", "flat"),
-                      lambda v: set_ov("bar_style", v))
-        width = spin(ov.get("flat_width", 178), 40, 1200, lambda v: set_ov("flat_width", v), " px", 10)
-        height = spin(ov.get("flat_height", 12), 2, 80, lambda v: set_ov("flat_height", v), " px")
+        style = combo({"flat": "Flat bars", "neon": "Neon (angled, glowing)", "image": "My own skin pictures",
+                       "card": "Cards (name + time)"}, ov.get("bar_style", "flat"), lambda v: set_ov("bar_style", v))
+        width = spin(ov.get("flat_width", 178), 40, 1600, lambda v: set_ov("flat_width", v), " px", 10)
+        height = spin(ov.get("flat_height", 12), 2, 200, lambda v: set_ov("flat_height", v), " px")
         outline = spin(ov.get("flat_outline", 1), 0, 10, lambda v: set_ov("flat_outline", v), " px")
-        self.body.addWidget(row(QLabel("Parry / Dodge bars"), style))
-        self.body.addWidget(row(QLabel("Length"), width, QLabel("Thickness"), height, QLabel("Outline"), outline))
+        box, form = form_group("Parry / Dodge bars")
+        form.addRow("Style", style)
+        form.addRow("Size", row(QLabel("length"), width, QLabel("thickness"), height, QLabel("outline"), outline))
+
+        # text on the bars, off by default so plain bars cost nothing extra
+        bt = ov.setdefault("bar_text", {"enabled": False, "template": "{NAME} {STATUS}", "color": "#ffffff",
+                                        "size": 9, "position": "above"})
+
+        def set_bt(key, value):
+            bt[key] = value
+            self.c.changed(apply=False)
+        text_on = QCheckBox("Show text on the bars")
+        text_on.setChecked(bt.get("enabled", False))
+        text_on.toggled.connect(lambda on: set_bt("enabled", on))
+        template = QLineEdit(bt.get("template", "{NAME} {STATUS}"))
+        template.setToolTip("{NAME} = the bar's label, {STATUS} = READY / 1.2s / LANDED")
+        template.editingFinished.connect(lambda: set_bt("template", template.text() or "{NAME} {STATUS}"))
+        tcol = HexColorButton(bt.get("color", "#ffffff"), lambda h: set_bt("color", h))
+        tsize = spin(bt.get("size", 9), 6, 40, lambda v: set_bt("size", v), " pt")
+        tpos = combo({"above": "above the bar", "inside": "inside the bar"}, bt.get("position", "above"),
+                     lambda v: set_bt("position", v))
+        form.addRow("", text_on)
+        form.addRow("Text", row(template, stretch=False))
+        form.addRow("", row(tcol, tsize, tpos))
+        form.addRow(hint("e.g. \"AUTOPARRY METER {STATUS}\". Set a label per bar in Cooldowns > Bar text; "
+                         "without one the bar's name is used."))
+
+        # skin pictures
+        sk = ov.setdefault("skin", {"empty": "", "full": "", "fill_area": [4, 22, 96, 78]})
+
+        def pick_skin(which):
+            from PySide6.QtWidgets import QFileDialog
+            path, _ = QFileDialog.getOpenFileName(self, f"Skin picture: bar {which}", "",
+                                                  "Images (*.png *.jpg *.jpeg *.webp *.bmp)")
+            if path:
+                sk[which] = self.c.keep_file(path, f"skin_{which}")
+                self.c.changed(apply=False)
+                for o in self.c.overlays.values():
+                    getattr(o, "cache", {}).clear()
+                self.skin_lbl.setText(self.skin_text())
+        empty_btn = QPushButton("Import empty bar picture")
+        empty_btn.clicked.connect(lambda: pick_skin("empty"))
+        full_btn = QPushButton("Import full bar picture")
+        full_btn.clicked.connect(lambda: pick_skin("full"))
+        clear_btn = QPushButton("Clear")
+        clear_btn.clicked.connect(lambda: (sk.update(empty="", full=""), self.c.changed(apply=False),
+                                           self.skin_lbl.setText(self.skin_text())))
+        form.addRow("Skin", row(empty_btn, full_btn, clear_btn))
+        self.skin_lbl = hint(self.skin_text())
+        form.addRow("", self.skin_lbl)
+        area_spins = []
+        for i, name in enumerate(("left", "top", "right", "bottom")):
+            def setter(v, i=i):
+                sk["fill_area"][i] = v
+                self.c.changed(apply=False)
+            area_spins.append(spin(sk.get("fill_area", [4, 22, 96, 78])[i], 0, 100, setter, "%"))
+        form.addRow("Fill area", row(*[w for pair in zip([QLabel(n) for n in ("left", "top", "right", "bottom")],
+                                                          area_spins) for w in pair]))
+        form.addRow(hint("Style 'My own skin pictures': the empty picture is the bar at 0, the full picture is "
+                         "revealed left to right inside the fill area as it recharges. With only an empty picture, "
+                         "a colour fill is drawn inside the fill area and the picture sits on top like a frame."))
+
+        # lining up
+        snap = QCheckBox("Snap bars together when you drop them near each other")
+        snap.setChecked(ov.get("snap", True))
+        snap.toggled.connect(lambda on: set_ov("snap", on))
+        gap = spin(ov.get("line_gap", 6), 0, 80, lambda v: set_ov("line_gap", v), " px gap")
+        line_up = QPushButton("Line up bars")
+        line_up.setObjectName("Primary")
+        line_up.clicked.connect(lambda: self.c.engine.log(f"lined up {self.c.line_up_bars()} bars"))
+        form.addRow("", snap)
+        form.addRow("", row(line_up, gap))
+        self.body.addWidget(box)
         pw = spin(ov.get("party_width", 400), 220, 1200, lambda v: set_ov("party_width", v), " px", 10)
         pb = spin(ov.get("party_bar", 12), 3, 60, lambda v: set_ov("party_bar", v), " px")
         self.body.addWidget(row(QLabel("Party HP  width"), pw, QLabel("bar thickness"), pb))
@@ -700,6 +974,11 @@ class WidgetsPage(Page):
         self.body.addWidget(self.grid_host)
         self.body.addStretch(1)
         self.cards = []
+
+    def skin_text(self):
+        sk = self.c.cfg["overlay"].get("skin", {})
+        names = [f"{k}: {os.path.basename(sk[k])}" for k in ("empty", "full") if sk.get(k)]
+        return "  ·  ".join(names) or "no skin pictures yet"
 
     def set_lock(self, on):
         self.c.cfg["overlay"]["locked"] = on
@@ -862,6 +1141,7 @@ def form_group(title, checkable=False, checked=True, on_toggle=None):
 
 class CooldownsPage(ListPage):
     title = "Cooldowns"
+    code = "TIMERS"
     subtitle = "Bars that time your dodge, parry or any other key from the moment you press it."
     list_key = "cooldowns"
     add_label = "Add cooldown"
@@ -882,6 +1162,10 @@ class CooldownsPage(ListPage):
                                      lambda v: (cd.__setitem__("cooldown_ms", v), ch()), " ms", 50))
         form.addRow("Bar colour", HexColorButton(cd.get("color", "#4aa3ff"),
                                                  lambda h: (cd.__setitem__("color", h), ch())))
+        label = QLineEdit(cd.get("label", ""))
+        label.setPlaceholderText(f"text on the bar, e.g. AUTOPARRY METER (empty = {cd['name']})")
+        label.editingFinished.connect(lambda: (cd.__setitem__("label", label.text().strip()), ch()))
+        form.addRow("Bar text", label)
         form.addRow("Game bubble", row(combo({0: "none", 1: "1st (roll)", 2: "2nd (parry)", 3: "3rd", 4: "4th"},
                                              cd.get("icon_slot", 0),
                                              lambda v: (cd.__setitem__("icon_slot", v), ch())),
@@ -1055,6 +1339,7 @@ def describe_steps(steps):
 
 class MacrosPage(ListPage):
     title = "Macros"
+    code = "INPUT"
     subtitle = "Press a hotkey to run a list of steps: hold keys, press keys, click, wait."
     list_key = "macros"
     add_label = "Add macro"
@@ -1143,6 +1428,7 @@ class MacrosPage(ListPage):
 
 class RulesPage(ListPage):
     title = "Screen rules"
+    code = "VISION"
     subtitle = "Watch the screen for a picture or colour, and react with a key press or click when it appears."
     list_key = "rules"
     add_label = "Add screen rule"
@@ -1231,6 +1517,7 @@ class RulesPage(ListPage):
 
 class PartyPage(Page):
     title = "Party HP"
+    code = "SQUAD"
     subtitle = ("Your HP is read off your own health bar. Friends who run Elgansito Demolisher Macro with the same party code "
                 "share theirs, and everyone sees each other's HP as bars.")
 
@@ -1417,8 +1704,332 @@ class PartyPage(Page):
             self.prompt_now.setText(f"watching  -  pressed {eng.prompt_presses}")
 
 
+class BuilderPage(Page):
+    title = "Builder"
+    code = "BUILDER 101"
+    subtitle = ("Paste your deepwoken.co build. Its talents show top-right on screen, and when a talent card you're "
+                "offered is in your build you get a notification.")
+
+    def __init__(self, controller):
+        super().__init__(controller)
+        b = self.c.cfg["builder"]
+        box, form = form_group("Elgansito Builder")
+        self.url = QLineEdit(b.get("url", ""))
+        self.url.setPlaceholderText("https://deepwoken.co/builder?id=...")
+        load = QPushButton("Load build")
+        load.setObjectName("Primary")
+        load.clicked.connect(self.load)
+        site = QPushButton("Open deepwoken.co builder")
+        site.clicked.connect(lambda: __import__("webbrowser").open(self.url.text().strip() or "https://deepwoken.co/builder"))
+        form.addRow("Build link", row(self.url, load, site, stretch=False))
+        self.status = hint("")
+        form.addRow("", self.status)
+        show = QPushButton("Show BUILDER 101 on screen")
+        show.clicked.connect(lambda: self.c.show_overlay("builder"))
+        rows = spin(b.get("max_rows", 12), 3, 40, lambda v: (b.__setitem__("max_rows", v), self.c.changed(apply=False)),
+                    " talents shown")
+        form.addRow("", row(show, rows))
+        self.body.addWidget(box)
+
+        box, form = form_group("Talent card alerts")
+        watch = QCheckBox("Watch the screen for talent cards and notify me when one is in my build")
+        watch.setChecked(b.get("watch", False))
+        watch.toggled.connect(lambda on: (b.__setitem__("watch", on), self.c.changed()))
+        form.addRow("", watch)
+        pick = QPushButton("Pick the talent card area")
+        pick.clicked.connect(self.pick_area)
+        self.area = hint("")
+        form.addRow("", row(pick, self.area))
+        self.seen = QLabel("")
+        form.addRow("Right now", self.seen)
+        form.addRow(hint("Reads the text in that area a few times a second (Windows OCR, offline) and matches it "
+                         "against your build, allowing small misreads. Tick talents below once you have them so "
+                         "they stop alerting. Uses some CPU while on; it's off when the game isn't focused."))
+        self.body.addWidget(box)
+
+        box = QGroupBox("Talents in the build")
+        lay = QVBoxLayout(box)
+        self.filter = QLineEdit()
+        self.filter.setPlaceholderText("search...")
+        self.filter.textChanged.connect(self.fill)
+        lay.addWidget(self.filter)
+        self.list = QListWidget()
+        self.list.itemChanged.connect(self.ticked)
+        lay.addWidget(self.list, 1)
+        self.body.addWidget(box, 1)
+        self.fill()
+
+    def load(self):
+        b = self.c.cfg["builder"]
+        self.status.setText("loading...")
+        QApplication.processEvents()
+        try:
+            build = builder.fetch(self.url.text())
+        except Exception as e:
+            self.status.setText(f"couldn't load: {e}")
+            return
+        b.update(url=self.url.text().strip(), name=build["name"], talents=build["talents"],
+                 obtained=[t for t in b.get("obtained", []) if t in build["talents"]])
+        self.c.changed()
+        self.c.engine.log(f"builder: loaded '{build['name']}' ({len(build['talents'])} talents)")
+        self.fill()
+
+    def fill(self):
+        b = self.c.cfg["builder"]
+        talents, have = b.get("talents", []), set(b.get("obtained", []))
+        q = self.filter.text().strip().lower()
+        self.list.blockSignals(True)
+        self.list.clear()
+        from PySide6.QtWidgets import QListWidgetItem
+        for t in talents:
+            if q and q not in t.lower():
+                continue
+            item = QListWidgetItem(t)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if t in have else Qt.Unchecked)
+            self.list.addItem(item)
+        self.list.blockSignals(False)
+        if talents:
+            self.status.setText(f"{b.get('name', 'Build')}: {len(have)} / {len(talents)} talents ticked as obtained")
+        else:
+            self.status.setText("no build loaded yet")
+        r = b.get("region") or [480, 160, 960, 700]
+        self.area.setText("area: {} x {} at ({}, {})".format(r[2], r[3], r[0], r[1]))
+
+    def ticked(self, item):
+        have = self.c.cfg["builder"].setdefault("obtained", [])
+        t = item.text()
+        if item.checkState() == Qt.Checked and t not in have:
+            have.append(t)
+        elif item.checkState() != Qt.Checked and t in have:
+            have.remove(t)
+        self.c.changed()
+        self.fill()
+
+    def pick_area(self):
+        def picked(res, img, origin):
+            if res and "region" in res:
+                self.c.cfg["builder"]["region"] = res["region"]
+                self.c.changed()
+                self.fill()
+        self.c.pick("area", picked)
+
+    def tick(self):
+        seen = self.c.engine.builder_seen
+        self.seen.setText(("on screen: " + ", ".join(seen)) if seen else
+                          ("watching" if self.c.cfg["builder"].get("watch") else "off"))
+
+
+class MusicPage(Page):
+    title = "Music"
+    code = "AUDIO"
+    subtitle = ("Play your own songs (mp3, wav, m4a, or the sound of mp4 clips) while you play, or control Spotify. "
+                "Everything plays from files on your PC - nothing is streamed or downloaded.")
+
+    def __init__(self, controller):
+        super().__init__(controller)
+        m = self.c.cfg["music"]
+        box, form = form_group("Now playing")
+        self.now = QLabel("nothing")
+        self.now.setStyleSheet("font-size: 13pt; font-weight: 700; color: #ffffff;")
+        form.addRow(self.now)
+        self.prog = QLabel("")
+        self.prog.setObjectName("Hint")
+        form.addRow(self.prog)
+        prev_b, play_b, next_b, stop_b = (QPushButton("⏮"), QPushButton("⏯  PLAY / PAUSE"), QPushButton("⏭"),
+                                          QPushButton("■ STOP"))
+        play_b.setObjectName("Primary")
+        prev_b.clicked.connect(lambda: self.c.music.skip(-1))
+        play_b.clicked.connect(self.c.music.toggle)
+        next_b.clicked.connect(lambda: self.c.music.skip(1))
+        stop_b.clicked.connect(self.c.music.stop)
+        vol = QSlider(Qt.Horizontal)
+        vol.setRange(0, 100)
+        vol.setValue(int(m.get("volume", 60)))
+        vol.setFixedWidth(160)
+        vol.valueChanged.connect(lambda v: (m.__setitem__("volume", v), self.c.music.set_volume(v),
+                                            self.c.changed(apply=False)))
+        form.addRow("", row(prev_b, play_b, next_b, stop_b, QLabel("volume"), vol))
+        loop = QCheckBox("Loop the playlist")
+        loop.setChecked(m.get("loop", True))
+        loop.toggled.connect(lambda on: (m.__setitem__("loop", on), self.c.changed(apply=False)))
+        shuffle = QCheckBox("Shuffle")
+        shuffle.setChecked(m.get("shuffle", False))
+        shuffle.toggled.connect(lambda on: (m.__setitem__("shuffle", on), self.c.changed(apply=False)))
+        form.addRow("", row(loop, shuffle))
+        self.body.addWidget(box)
+
+        box = QGroupBox("Playlist")
+        lay = QVBoxLayout(box)
+        self.list = QListWidget()
+        self.list.itemDoubleClicked.connect(lambda it: self.c.music.play_index(self.list.row(it)))
+        lay.addWidget(self.list, 1)
+        add = QPushButton("+ Add songs")
+        add.clicked.connect(self.add)
+        remove = QPushButton("Remove selected")
+        remove.clicked.connect(self.remove)
+        lay.addWidget(row(add, remove, hint("double-click a song to play it")))
+        self.body.addWidget(box, 1)
+
+        box, form = form_group("Spotify")
+        self.spot = QLabel("")
+        form.addRow("Spotify", self.spot)
+        sp_prev, sp_play, sp_next = QPushButton("⏮"), QPushButton("⏯  PLAY / PAUSE"), QPushButton("⏭")
+        sp_prev.clicked.connect(lambda: media_key(0xB1))
+        sp_play.clicked.connect(lambda: media_key(0xB3))
+        sp_next.clicked.connect(lambda: media_key(0xB0))
+        form.addRow("", row(sp_prev, sp_play, sp_next))
+        form.addRow(hint("Controls the Spotify app (or any player) with your keyboard's media keys, and shows what "
+                         "Spotify is playing. Nothing logs in or connects to your account."))
+        self.body.addWidget(box)
+        self.fill()
+
+    def fill(self):
+        self.list.clear()
+        for path in self.c.cfg["music"].get("tracks", []):
+            self.list.addItem(os.path.splitext(os.path.basename(path))[0])
+
+    def add(self):
+        from PySide6.QtWidgets import QFileDialog
+        paths, _ = QFileDialog.getOpenFileNames(self, "Add songs", "", audio.AUDIO_TYPES)
+        if paths:
+            self.c.cfg["music"].setdefault("tracks", []).extend(paths)
+            self.c.changed(apply=False)
+            self.fill()
+
+    def remove(self):
+        tracks = self.c.cfg["music"].get("tracks", [])
+        for i in sorted({ix.row() for ix in self.list.selectedIndexes()}, reverse=True):
+            if i < len(tracks):
+                tracks.pop(i)
+        self.c.changed(apply=False)
+        self.fill()
+
+    def tick(self):
+        mp = self.c.music
+        if mp.track.path:
+            name = os.path.splitext(os.path.basename(mp.track.path))[0]
+            state = mp.track.mode()
+            self.now.setText(f"{'▶' if state == 'playing' else '❚❚'}  {name}")
+            pos, length = mp.track.position() // 1000, max(mp.track.length() // 1000, 1)
+            self.prog.setText(f"{pos // 60}:{pos % 60:02d} / {length // 60}:{length % 60:02d}")
+        else:
+            self.now.setText("nothing playing")
+            self.prog.setText("")
+        self.spot.setText(spotify_now_playing() or "not playing (open the Spotify app)")
+
+
+def media_key(vk):
+    """Press a keyboard media key (play/pause 0xB3, next 0xB0, previous 0xB1)."""
+    user32 = ctypes.windll.user32
+    user32.keybd_event(vk, 0, 0x1, 0)
+    user32.keybd_event(vk, 0, 0x1 | 0x2, 0)
+
+
+def spotify_now_playing():
+    """'Artist - Song' from the Spotify window title (it shows just 'Spotify' when paused)."""
+    titles = []
+    proto = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    user32 = ctypes.windll.user32
+
+    def cb(hwnd, _):
+        n = user32.GetWindowTextLengthW(hwnd)
+        if n and user32.IsWindowVisible(hwnd):
+            buf = ctypes.create_unicode_buffer(n + 1)
+            user32.GetWindowTextW(hwnd, buf, n + 1)
+            pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+            titles.append((buf.value, pid.value))
+        return True
+    user32.EnumWindows(proto(cb), 0)
+    spotify_pids = {pid for t, pid in titles if t.startswith("Spotify")}
+    for t, pid in titles:
+        if " - " in t and (pid in spotify_pids or _process_name(pid) == "spotify.exe"):
+            return t
+    return None
+
+
+def _process_name(pid):
+    k = ctypes.windll.kernel32
+    k.OpenProcess.restype = ctypes.c_void_p
+    h = k.OpenProcess(0x1000, False, pid)
+    if not h:
+        return ""
+    try:
+        buf = ctypes.create_unicode_buffer(260)
+        size = ctypes.c_ulong(260)
+        if ctypes.windll.kernel32.QueryFullProcessImageNameW(ctypes.c_void_p(h), 0, buf, ctypes.byref(size)):
+            return os.path.basename(buf.value).lower()
+        return ""
+    finally:
+        k.CloseHandle(ctypes.c_void_p(h))
+
+
+class MusicPlayer:
+    """Playlist on top of audio.Track; advances to the next song when one ends."""
+
+    def __init__(self, controller):
+        self.c = controller
+        self.track = audio.Track("elgansito_music")
+        self.index = -1
+        self.timer = QTimer(interval=1000, timeout=self.check)
+        self.timer.start()
+
+    def tracks(self):
+        return self.c.cfg.get("music", {}).get("tracks", [])
+
+    def volume(self):
+        return int(self.c.cfg.get("music", {}).get("volume", 60))
+
+    def play_index(self, i):
+        tracks = self.tracks()
+        if not tracks:
+            return
+        self.index = i % len(tracks)
+        try:
+            self.track.open(tracks[self.index])
+            self.track.play(self.volume())
+            self.c.engine.log(f"music: playing {os.path.basename(tracks[self.index])}")
+        except Exception as e:
+            self.c.engine.log(f"music: can't play {os.path.basename(tracks[self.index])} ({e})")
+
+    def toggle(self):
+        mode = self.track.mode()
+        if mode == "playing":
+            self.track.pause()
+        elif mode == "paused":
+            self.track.resume()
+        else:
+            self.play_index(max(self.index, 0))
+
+    def skip(self, d):
+        tracks = self.tracks()
+        if not tracks:
+            return
+        if self.c.cfg["music"].get("shuffle") and d > 0:
+            import random
+            self.play_index(random.randrange(len(tracks)))
+        else:
+            self.play_index(self.index + d)
+
+    def stop(self):
+        self.track.close()
+
+    def set_volume(self, v):
+        self.track.set_volume(v)
+
+    def check(self):
+        if self.track.path and self.track.mode() == "stopped":
+            last = self.index >= len(self.tracks()) - 1
+            if last and not self.c.cfg["music"].get("loop", True):
+                self.track.close()
+            else:
+                self.skip(1)
+
+
 class SettingsPage(Page):
     title = "Settings"
+    code = "SYSTEM"
 
     def __init__(self, controller):
         super().__init__(controller)
@@ -1452,6 +2063,8 @@ class SettingsPage(Page):
                                                  lambda k: (cfg.__setitem__("toggle_key", k), ch())))
         form.addRow("Log cursor position + colour", KeyButton(self.c, cfg.get("pick_key", "f7"),
                                                               lambda k: (cfg.__setitem__("pick_key", k), ch())))
+        form.addRow("Hide / show the app", KeyButton(self.c, cfg.get("hide_key", "f8"),
+                                                     lambda k: (cfg.__setitem__("hide_key", k), ch())))
         start = QCheckBox("Start with macros ON")
         start.setChecked(cfg.get("start_active", False))
         start.toggled.connect(lambda on: (cfg.__setitem__("start_active", on), ch()))
@@ -1501,6 +2114,45 @@ class SettingsPage(Page):
         form.addRow("", row(export, imp, open_data, self.settings_lbl))
         self.body.addWidget(box)
 
+        box, form = form_group("Performance")
+        perf = combo({"light": "Light - least CPU, a bit slower to react",
+                      "balanced": "Balanced (recommended)",
+                      "max": "Max - fastest reactions, most CPU"}, cfg.get("performance", "balanced"),
+                     lambda v: (cfg.__setitem__("performance", v), ch(apply=False)))
+        form.addRow("Usage", perf)
+        form.addRow(hint("How often the app reads the screen and redraws overlays. Text on bars, skins, Builder "
+                         "alerts, Party HP and key prompts all have their own on/off switches too - anything "
+                         "switched off costs nothing. For the lightest version, use Elgansito Lite."))
+        self.body.addWidget(box)
+
+        nt = cfg.setdefault("notify", {})
+        box, form = form_group("Notifications", True, nt.get("enabled", True),
+                               lambda on: (nt.__setitem__("enabled", on), ch(apply=False)))
+        form.addRow(hint("Pop-ups in the top-right corner: Builder 101 talents, a friend under 30% HP, macros "
+                         "arming when Deepwoken is detected."))
+        snd_on = QCheckBox("Play a sound")
+        snd_on.setChecked(nt.get("sound_on", True))
+        snd_on.toggled.connect(lambda on: (nt.__setitem__("sound_on", on), ch(apply=False)))
+        pick_snd = QPushButton("Choose sound file")
+        pick_snd.clicked.connect(lambda: self.pick_notify_file("sound"))
+        pick_img = QPushButton("Choose picture")
+        pick_img.clicked.connect(lambda: self.pick_notify_file("image"))
+        default = QPushButton("Defaults")
+        default.clicked.connect(lambda: (nt.update(sound="", image=""), ch(apply=False), self.notify_lbl.setText(self.notify_text())))
+        test = QPushButton("Test")
+        test.setObjectName("Primary")
+        test.clicked.connect(lambda: self.c.notifier.show("BUILDER 101", "Blade Dancer is in your build - take it!", "builder"))
+        form.addRow("", row(snd_on, pick_snd, pick_img, default, test))
+        nvol = spin(nt.get("volume", 70), 0, 100, lambda v: (nt.__setitem__("volume", v), ch(apply=False)), " % volume", 5)
+        secs = spin(nt.get("seconds", 4), 1, 20, lambda v: (nt.__setitem__("seconds", v), ch(apply=False)), " s on screen")
+        low = QCheckBox("Friend under 30% HP")
+        low.setChecked(nt.get("party_low", True))
+        low.toggled.connect(lambda on: (nt.__setitem__("party_low", on), ch(apply=False)))
+        form.addRow("", row(nvol, secs, low))
+        self.notify_lbl = hint(self.notify_text())
+        form.addRow("", self.notify_lbl)
+        self.body.addWidget(box)
+
         ui = cfg.setdefault("ui", {"click_sound": True, "volume": 60, "animations": True})
         box, form = form_group("Interface")
         snd = QCheckBox("Click sound")
@@ -1511,6 +2163,24 @@ class SettingsPage(Page):
         anim.setChecked(ui.get("animations", True))
         anim.toggled.connect(lambda on: (ui.__setitem__("animations", on), ch()))
         form.addRow("", row(snd, vol, anim))
+        name = QLineEdit(ui.get("display_name", "ELGANSITO"))
+        name.editingFinished.connect(lambda: (ui.__setitem__("display_name", name.text().strip()), ch(apply=False)))
+        tagline = QLineEdit(ui.get("tagline", "EDGERUNNER // LV.20"))
+        tagline.editingFinished.connect(lambda: (ui.__setitem__("tagline", tagline.text().strip()), ch(apply=False)))
+        form.addRow("Name / tagline", row(name, tagline, stretch=False))
+        bg_pick = QPushButton("Choose background image")
+        bg_pick.clicked.connect(self.pick_background)
+        bg_clear = QPushButton("No background")
+        bg_clear.clicked.connect(lambda: (ui.__setitem__("background", ""), ch(apply=False), self.c.rebuild_window()))
+        dim = QSlider(Qt.Horizontal)
+        dim.setRange(20, 95)
+        dim.setValue(int(ui.get("background_dim", 70)))
+        dim.setFixedWidth(160)
+        dim.valueChanged.connect(lambda v: (ui.__setitem__("background_dim", v), ch(apply=False),
+                                            self.window().centralWidget().update()))
+        form.addRow("Background", row(bg_pick, bg_clear, QLabel("darken"), dim))
+        form.addRow(hint("Name, tagline and picture show in the sidebar; click the picture there to change it. "
+                         "Name and tagline update next time you open the app or switch profile."))
         self.body.addWidget(box)
 
         icfg = cfg.setdefault("cd_icons", {"enabled": True, "x": [933, 951, 969, 987], "y": [928, 962]})
@@ -1564,6 +2234,29 @@ class SettingsPage(Page):
                     self.c.rebuild_window()
         except ValueError as e:
             QMessageBox.warning(self, "Profiles", str(e))
+
+    def notify_text(self):
+        nt = self.c.cfg.get("notify", {})
+        return "sound: {}   picture: {}".format(os.path.basename(nt.get("sound", "")) or "built-in chime",
+                                                os.path.basename(nt.get("image", "")) or "none")
+
+    def pick_notify_file(self, which):
+        from PySide6.QtWidgets import QFileDialog
+        kinds = audio.AUDIO_TYPES if which == "sound" else "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)"
+        path, _ = QFileDialog.getOpenFileName(self, f"Notification {which}", "", kinds)
+        if path:
+            self.c.cfg["notify"][which] = self.c.keep_file(path, f"notify_{which}")
+            self.c.changed(apply=False)
+            self.notify_lbl.setText(self.notify_text())
+
+    def pick_background(self):
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Choose a background image", "",
+                                              "Images (*.png *.jpg *.jpeg *.webp *.bmp)")
+        if path:
+            self.c.cfg["ui"]["background"] = self.c.keep_file(path, "background")
+            self.c.changed(apply=False)
+            self.c.rebuild_window()
 
     def export_settings(self):
         from PySide6.QtWidgets import QFileDialog
@@ -1626,6 +2319,7 @@ class SettingsPage(Page):
 
 class RobloxPage(Page):
     title = "Roblox"
+    code = "LAUNCH"
     subtitle = ("Works with Froststrap, Bloxstrap and Fishstrap: knows which game you're in, turns macros on in "
                 "Deepwoken, and edits your FastFlags.")
 
@@ -1683,6 +2377,17 @@ class RobloxPage(Page):
         form.addRow("", start)
         lay.addWidget(box)
 
+        box, form = form_group("Get a bootstrapper")
+        form.addRow(hint("Opens the official download page in your browser. Froststrap v1.5.0 is the version "
+                         "these presets were made with."))
+        buttons = []
+        for name, url in fastflags.DOWNLOADS.items():
+            b = QPushButton(f"Download {name}")
+            b.clicked.connect(lambda _, u=url: __import__("webbrowser").open(u))
+            buttons.append(b)
+        form.addRow("", row(*buttons))
+        lay.addWidget(box)
+
         box, form = form_group("FastFlags")
         form.addRow(hint("These go into the same file your bootstrapper uses, so they apply the next time Roblox "
                          "starts. Roblox ignores flags that aren't on its allowlist, so some may do nothing."))
@@ -1717,6 +2422,19 @@ class RobloxPage(Page):
         add_preset = QPushButton("Add preset")
         add_preset.clicked.connect(lambda: self.add_flag(*fastflags.PRESETS[self.preset.currentText()]))
         form.addRow("", row(add_flag, delete, paste, self.preset, add_preset))
+        rb = self.c.cfg["roblox"]
+        self.flag_set = QComboBox()
+        for name in fastflags.preset_sets():
+            self.flag_set.addItem(name)
+        load_set = QPushButton("Load into table")
+        load_set.setToolTip("Replaces the table with this list; press Save flags to write it")
+        load_set.clicked.connect(self.load_flag_set)
+        form.addRow("Elgansito presets", row(self.flag_set, load_set))
+        auto = QCheckBox("Add the chosen preset to my flags each time I launch Roblox from this app")
+        auto.setChecked(bool(rb.get("auto_flags")))
+        auto.toggled.connect(lambda on: (rb.__setitem__("auto_flags", self.flag_set.currentText() if on else ""),
+                                         self.c.changed(apply=False)))
+        form.addRow("", auto)
         copy_all = QPushButton("Copy all")
         copy_all.setToolTip("Copies your flags as JSON - send it to a friend, they press Paste JSON")
         copy_all.clicked.connect(lambda: self.copy_flags(selected_only=False))
@@ -1765,8 +2483,24 @@ class RobloxPage(Page):
             self.c.changed()
             self.refresh_games()
 
+    def load_flag_set(self):
+        flags = fastflags.preset_sets().get(self.flag_set.currentText(), {})
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        for k, v in flags.items():
+            self._row(k, v)
+        self.table.blockSignals(False)
+        self.flag_status.setText(f"loaded {len(flags)} flags from the preset - press Save flags to apply")
+
     def launch(self, place_id):
         exe = self.launcher.currentData()
+        preset = self.c.cfg["roblox"].get("auto_flags")
+        if preset and self.path():
+            try:
+                n = fastflags.merge_into(self.path(), fastflags.preset_sets().get(preset, {}))
+                self.c.engine.log(f"added {n} flags from '{preset}' before launching")
+            except Exception as e:
+                self.c.engine.log(f"couldn't add flags before launching: {e}")
         try:
             if exe != "link":
                 fastflags.launch(exe, place_id)
@@ -1912,20 +2646,23 @@ class TitleBar(QWidget):
         self.setObjectName("TitleBar")
         self.setAttribute(Qt.WA_StyledBackground)
         self.win = window
-        self.setFixedHeight(38)
+        self.setFixedHeight(36)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(14, 0, 0, 0)
-        dot = QLabel()
-        dot.setPixmap(uifx.rounded(QPixmap(uifx.asset("app.png")), 22, 22, 6))
-        title = QLabel("Elgansito Demolisher Macro")
-        title.setObjectName("AppTitle")
-        lay.addWidget(dot)
-        lay.addWidget(title)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        brand = QLabel("ELGANSITO  //LITE" if engine_mod.LITE else "DEMOLISHER  //V2")
+        brand.setObjectName("Brand")
+        brand.setFixedHeight(36)
+        lay.addWidget(brand)
+        user = (window.c.cfg.get("ui", {}).get("display_name") or "ELGANSITO").upper()
+        self.net = QLabel(f"NET_LINK::{user}  //  SYS_OK")
+        self.net.setObjectName("NetLink")
+        lay.addWidget(self.net)
         lay.addStretch(1)
         for text, name, fn in (("—", "TitleBtn", window.showMinimized), ("✕", "CloseBtn", window.close)):
             b = QPushButton(text)
             b.setObjectName(name)
-            b.setFixedHeight(38)
+            b.setFixedHeight(36)
             b.clicked.connect(fn)
             lay.addWidget(b)
 
@@ -1934,16 +2671,74 @@ class TitleBar(QWidget):
             self.win.windowHandle().startSystemMove()
 
 
+class Backdrop(QWidget):
+    """The window body: dark, or your chosen background image dimmed behind everything."""
+
+    def __init__(self, controller):
+        super().__init__()
+        self.c = controller
+        self.setObjectName("Body")
+        self.image = QPixmap()
+        path = controller.cfg.get("ui", {}).get("background", "")
+        if path and os.path.exists(path):
+            self.image = QPixmap(path)
+        self.cache = None
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.fillRect(self.rect(), QColor(10, 14, 19))
+        if not self.image.isNull():
+            if self.cache is None or self.cache.size() != self.size():
+                self.cache = uifx.rounded(self.image, self.width(), self.height(), 0)
+            p.drawPixmap(0, 0, self.cache)
+            dim = self.c.cfg.get("ui", {}).get("background_dim", 70) / 100
+            p.fillRect(self.rect(), QColor(10, 14, 19, int(255 * dim)))
+        # faint scanlines for the terminal look
+        p.setPen(QColor(255, 255, 255, 6))
+        for y in range(0, self.height(), 4):
+            p.drawLine(0, y, self.width(), y)
+
+
+class Pfp(QLabel):
+    """Profile picture: click to pick an image from your files."""
+
+    def __init__(self, controller):
+        super().__init__()
+        self.c = controller
+        self.setObjectName("Pfp")
+        self.setFixedSize(64, 64)
+        self.setAlignment(Qt.AlignCenter)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Click to choose your picture")
+        self.refresh()
+
+    def refresh(self):
+        path = self.c.cfg.get("ui", {}).get("pfp", "")
+        pix = QPixmap(path) if path and os.path.exists(path) else QPixmap(uifx.asset("app.png"))
+        if pix.isNull():
+            self.setText("pfp\nor\nbrowse\nfiles")
+        else:
+            self.setPixmap(uifx.rounded(pix, 62, 62, 0))
+
+    def mousePressEvent(self, e):
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Choose your picture", "",
+                                              "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)")
+        if path:
+            self.c.cfg["ui"]["pfp"] = self.c.keep_file(path, "pfp")
+            self.c.changed(apply=False)
+            self.refresh()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, controller):
         super().__init__()
         self.c = controller
-        self.setWindowTitle("Elgansito Demolisher Macro")
+        self.setWindowTitle("Elgansito Lite" if engine_mod.LITE else "Elgansito Demolisher Macro")
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.resize(1200, 760)
-        self.setMinimumSize(860, 560)
-        body = QWidget()
-        body.setObjectName("Body")
+        self.setMinimumSize(900, 580)
+        body = Backdrop(controller)
         outer = QVBoxLayout(body)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -1953,27 +2748,38 @@ class MainWindow(QMainWindow):
         side = QWidget()
         side.setObjectName("Sidebar")
         side.setAttribute(Qt.WA_StyledBackground)
-        side.setFixedWidth(190)
+        side.setFixedWidth(214)
         side_lay = QVBoxLayout(side)
-        side_lay.setContentsMargins(10, 12, 10, 12)
-        side_lay.setSpacing(4)
-        picture = QLabel()
-        picture.setPixmap(uifx.rounded(QPixmap(uifx.asset("app.png")), 170, 170, 18))
-        picture.setAlignment(Qt.AlignCenter)
-        side_lay.addWidget(picture)
-        side_title = QLabel("Elgansito Demolisher")
+        side_lay.setContentsMargins(12, 12, 12, 12)
+        side_lay.setSpacing(3)
+        ui = controller.cfg.get("ui", {})
+        who = QHBoxLayout()
+        who.addWidget(Pfp(controller))
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        side_title = QLabel((ui.get("display_name") or "ELGANSITO").upper())
         side_title.setObjectName("SideTitle")
-        side_title.setAlignment(Qt.AlignCenter)
-        side_lay.addWidget(side_title)
+        tag = QLabel(ui.get("tagline") or "EDGERUNNER // LV.20")
+        tag.setObjectName("SideTag")
+        names.addStretch(1)
+        names.addWidget(side_title)
+        names.addWidget(tag)
+        names.addStretch(1)
+        who.addLayout(names, 1)
+        side_lay.addLayout(who)
+        rule = QFrame()
+        rule.setFixedHeight(1)
+        rule.setStyleSheet("background: #16232b;")
+        side_lay.addSpacing(8)
+        side_lay.addWidget(rule)
         side_lay.addSpacing(8)
         self.stack = QStackedWidget()
-        self.pages = [HomePage(controller), WidgetsPage(controller), CooldownsPage(controller),
-                      MacrosPage(controller), PartyPage(controller), RulesPage(controller),
-                      RobloxPage(controller), SettingsPage(controller)]
+        self.pages = [cls(controller) for cls in controller.page_classes()]
         group = QButtonGroup(self)
         self.nav = []
         for i, page in enumerate(self.pages):
-            b = QPushButton(page.title)
+            page.set_number(i + 1)
+            b = QPushButton(f"{i + 1:02d}   {page.title.upper()}")
             b.setObjectName("Nav")
             b.setCheckable(True)
             b.clicked.connect(lambda _, i=i: self.go(i))
@@ -2020,13 +2826,23 @@ class ProfileSwitcher(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(4)
-        lay.addWidget(hint("Profile (saves automatically)"))
+        head = QHBoxLayout()
+        cap = QLabel("// PROFILE")
+        cap.setObjectName("SideCaption")
+        auto = QLabel("AUTOSAVE ●")
+        auto.setObjectName("AutoSave")
+        head.addWidget(cap)
+        head.addStretch(1)
+        head.addWidget(auto)
+        lay.addLayout(head)
         self.box = QComboBox()
+        self.box.setObjectName("ProfileBox")
         self.box.setToolTip("Switch to another saved set of settings")
         self.refresh()
         self.box.currentIndexChanged.connect(self.switch)
         lay.addWidget(self.box)
-        save_as = QPushButton("+ Save as new profile")
+        save_as = QPushButton("+ SAVE NEW PROFILE")
+        save_as.setObjectName("Dashed")
         save_as.clicked.connect(self.save_as)
         lay.addWidget(save_as)
 
@@ -2061,8 +2877,11 @@ class Controller:
         self.waiting_snapshot = None
         self._needs_apply = False
         self.save_timer = QTimer(singleShot=True, interval=300, timeout=self.flush)
+        self.music = MusicPlayer(self)
+        self.notifier = notify.Notifier(self)
+        self.hidden = False
         self.window = MainWindow(self)
-        self.frame_timer = QTimer(interval=16, timeout=self.frame)
+        self.frame_timer = QTimer(interval=self.engine.perf("overlay_ms"), timeout=self.frame)
         self.frame_timer.start()
         self.ui_timer = QTimer(interval=100, timeout=self.ui_tick)
         self.ui_timer.start()
@@ -2142,6 +2961,21 @@ class Controller:
         state["x"], state["y"] = x, y
         self.changed(apply=False)
 
+    def line_up_bars(self):
+        """Stack every visible cooldown bar under the top one, left edges lined up."""
+        bars = sorted((ov for wid, ov in self.overlays.items() if wid.startswith("cooldown:") and ov.isVisible()),
+                      key=lambda o: o.y())
+        if not bars:
+            return 0
+        gap = int(self.cfg["overlay"].get("line_gap", 6))
+        x, y = bars[0].x(), bars[0].y()
+        for ov in bars:
+            ov._snapping = True
+            ov.move(x, y)
+            ov._snapping = False
+            y += ov.height() + gap
+        return len(bars)
+
     def restyle_overlays(self):
         for ov in self.overlays.values():
             ov.apply_style()
@@ -2181,6 +3015,14 @@ class Controller:
     def ui_tick(self):
         page = self.window.stack.currentWidget()
         page.tick()
+        while self.engine.notifications:
+            self.notifier.show(*self.engine.notifications.pop(0))
+        if self.engine.hide_requested:
+            self.engine.hide_requested = False
+            self.toggle_hidden()
+        want = self.engine.perf("overlay_ms")
+        if self.frame_timer.interval() != want:
+            self.frame_timer.setInterval(want)
         while self.engine.toggled_resets:
             cd_name, r_name, on = self.engine.toggled_resets.pop(0)
             for cd in self.cfg["cooldowns"]:
@@ -2197,6 +3039,45 @@ class Controller:
             self.snapshots[name] = (path, origin)
             if self.waiting_snapshot:
                 self.waiting_snapshot.snapshot_ready(name)
+
+    def toggle_hidden(self):
+        """The hide hotkey: tuck the whole app (window and overlays) away, or bring it back."""
+        self.hidden = not self.hidden
+        if self.hidden:
+            self.window.hide()
+            for ov in self.overlays.values():
+                ov.hide()
+        else:
+            self.window.showNormal()
+            for wid, ov in self.overlays.items():
+                if self.cfg["widgets"].get(wid, {}).get("visible"):
+                    ov.show()
+        self.engine.log("app hidden (press the hide key again to bring it back)" if self.hidden else "app shown")
+
+    def page_classes(self):
+        if engine_mod.LITE:
+            return [HomePage, WidgetsPage, CooldownsPage, MacrosPage, RobloxPage, SettingsPage]
+        return [HomePage, WidgetsPage, CooldownsPage, MacrosPage, PartyPage, BuilderPage, MusicPage, RulesPage,
+                RobloxPage, SettingsPage]
+
+    def keep_file(self, path, kind):
+        """Copy a picked file (picture, sound, skin) into your settings folder so it survives updates."""
+        import shutil
+        folder = os.path.join(config.DATA_DIR, "files")
+        os.makedirs(folder, exist_ok=True)
+        dest = os.path.join(folder, f"{kind}{os.path.splitext(path)[1].lower()}")
+        if os.path.abspath(path) != os.path.abspath(dest):
+            shutil.copyfile(path, dest)
+        return dest
+
+    def click_sound(self):
+        fx = getattr(self, "fx", None)
+        ui = self.cfg.get("ui", {})
+        if fx and ui.get("click_sound", True):
+            try:
+                fx.sound.play(int(ui.get("volume", 60)))
+            except Exception:
+                pass
 
     # profiles
     def new_profile(self, name, switch=True):
@@ -2262,6 +3143,7 @@ class Controller:
         QApplication.quit()
 
     def quit(self):
+        self.music.stop()
         self.flush()
         self.engine.stop()
         for ov in list(self.overlays.values()):
@@ -2278,6 +3160,7 @@ def main():
         app.setWindowIcon(QIcon(icon))
     controller = Controller()
     fx = uifx.ClickFx(controller)
+    controller.fx = fx
     app.installEventFilter(fx)
     controller.window.show()
     sys.exit(app.exec())

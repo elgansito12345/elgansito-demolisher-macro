@@ -11,6 +11,7 @@ import time
 from collections import deque
 from datetime import datetime
 
+import cv2
 import numpy as np
 from pynput import keyboard, mouse
 
@@ -18,6 +19,7 @@ import combat
 import config
 import detect
 import hp
+import builder
 import hud
 import icons
 import servername
@@ -94,6 +96,18 @@ JOB_RE = re.compile(r"! Joining game '([0-9a-f-]{36})'")
 LEAVE_RE = re.compile(r"Time to disconnect replication data|DisconnectClientInitiated")
 
 VK_NAMES = {v: k for k, v in sendinput.VK.items()}
+
+LITE = os.environ.get("ELGANSITO_LITE") == "1"
+
+# How hard the background loops work. "light" saves CPU, "max" reacts fastest.
+PERF = {
+    "light":    {"icons": 0.04, "hp": 0.40, "prompts": 0.08, "landing": 0.02, "server": 8.0, "combat": 1.5,
+                 "builder": 2.5, "rules": 2.0, "overlay_ms": 66},
+    "balanced": {"icons": 0.015, "hp": 0.15, "prompts": 0.03, "landing": 0.01, "server": 3.0, "combat": 0.5,
+                 "builder": 1.5, "rules": 1.0, "overlay_ms": 16},
+    "max":      {"icons": 0.008, "hp": 0.10, "prompts": 0.015, "landing": 0.005, "server": 2.0, "combat": 0.3,
+                 "builder": 1.0, "rules": 0.5, "overlay_ms": 8},
+}
 
 
 def vk_name(vk):
@@ -172,6 +186,10 @@ class Engine:
         self.combat = (False, None) # (in PvP combat, how many players)
         self.prompt_seen = None    # last prompt found: (letter, score, fake)
         self.prompt_presses = 0
+        self.notifications = []     # (title, text, kind) for the GUI to show as toasts
+        self.hide_requested = False # the hide hotkey was pressed
+        self.builder_seen = []      # build talents spotted on screen last scan
+        self._party_low = set()
         self.apply(self.cfg)
 
     # ---- config -------------------------------------------------------------
@@ -258,6 +276,9 @@ class Engine:
             self.physical_held.add(name)
             if name == self.cfg.get("toggle_key"):
                 self.set_active(not self.active)
+                return
+            if name == self.cfg.get("hide_key"):
+                self.hide_requested = True
                 return
             if name == self.cfg.get("pick_key"):
                 self.log_cursor()
@@ -361,14 +382,19 @@ class Engine:
 
     # ---- background loops ---------------------------------------------------
 
+    def perf(self, key):
+        return PERF.get(self.cfg.get("performance", "balanced"), PERF["balanced"])[key]
+
+    def notify(self, title, text, kind="info"):
+        self.notifications.append((title, text, kind))
+
     def start(self):
         self.start_listeners()
-        threading.Thread(target=self._rules_loop, daemon=True).start()
-        threading.Thread(target=self._landing_loop, daemon=True).start()
-        threading.Thread(target=self._game_watch_loop, daemon=True).start()
-        threading.Thread(target=self._hp_loop, daemon=True).start()
-        threading.Thread(target=self._icons_loop, daemon=True).start()
-        threading.Thread(target=self._prompts_loop, daemon=True).start()
+        loops = [self._landing_loop, self._game_watch_loop, self._icons_loop]
+        if not LITE:  # Elgansito Lite skips the screen-reading extras
+            loops += [self._rules_loop, self._hp_loop, self._prompts_loop, self._builder_loop]
+        for loop in loops:
+            threading.Thread(target=loop, daemon=True).start()
 
     def stop(self):
         self.running = False
@@ -414,7 +440,7 @@ class Engine:
                         except Exception as e:
                             self.log(f"{rule.name}: action failed ({e})")
                 elapsed = time.perf_counter() - start
-                wait = max(self.cfg.get("scan_interval_ms", 50) / 1000 - elapsed, 0)
+                wait = max(self.cfg.get("scan_interval_ms", 50) / 1000 * self.perf("rules") - elapsed, 0)
                 time.sleep(wait)
                 self.scans_per_sec = 1 / max(elapsed + wait, 1e-6)
 
@@ -447,7 +473,7 @@ class Engine:
                         del watching[key]
                         if r.detect_until:
                             self.log(f"{r.name}: not seen, best {detect.describe_score(r.detector, r.peak)}")
-                time.sleep(0.004 if pending else 0.01)
+                time.sleep(0.004 if pending else self.perf("landing"))
 
     def _hp_loop(self):
         """Read your own health (bar, or the "N% HEALTH" text under 14%), your server, region and
@@ -458,7 +484,7 @@ class Engine:
                 try:
                     focused = self.game_focused()
                     now = time.time()
-                    if focused and self.universe_id and now - self._server_read_at > 3:
+                    if focused and self.universe_id and now - self._server_read_at > self.perf("server"):
                         self._server_read_at = now
                         srv = self._read_box(sct, cfg.get("server_name", {}).get(
                             "region", servername.DEFAULT_REGION), servername.read)
@@ -473,7 +499,7 @@ class Engine:
                         self.server.add(None, None)
                         self.region = None
                         self.combat = (False, None)
-                    if focused and now - self._combat_read_at > 0.5:
+                    if focused and now - self._combat_read_at > self.perf("combat"):
                         self._combat_read_at = now
                         x, y, w, h = hud.SKULL_BOX
                         box = {"left": x, "top": y, "width": w + 60, "height": h + 40}
@@ -501,12 +527,13 @@ class Engine:
                             m["hp"] = None if m["hp"] is None else m["hp"] / 100
                             rows.append(m)
                         self.party = rows
+                        self._check_party_low(rows)
                     else:
                         self.party = []
                 except Exception as e:
                     self.log(f"HP reader error: {e}")
                     time.sleep(1)
-                time.sleep(0.15)
+                time.sleep(self.perf("hp"))
 
     def _read_box(self, sct, box, reader):
         x, y, w, h = box
@@ -540,7 +567,7 @@ class Engine:
                         msg = cd.icon_update(states[cd.icon_slot - 1], t)
                         if msg:
                             self.log(msg)
-                time.sleep(0.015)
+                time.sleep(self.perf("icons"))
 
     def _prompts_loop(self):
         """Press Deepwoken's Z / X / C / V prompts when they appear. Decoys on a teal
@@ -579,7 +606,51 @@ class Engine:
                     self.prompt_presses += 1
                     pressed_at = (found[0], found[2])
                     self.log(f"pressed {found[0]} prompt ({found[1]:.2f})")
-                time.sleep(0.03)
+                time.sleep(self.perf("prompts"))
+
+    def _check_party_low(self, rows):
+        """Toast once when a friend drops under 30% HP."""
+        if not self.cfg.get("notify", {}).get("party_low", True):
+            return
+        for r in rows:
+            if r.get("you") or not r.get("online") or r.get("hp") is None:
+                continue
+            name = r["name"]
+            if r["hp"] < 0.3 and name not in self._party_low:
+                self._party_low.add(name)
+                self.notify("Party", f"{name} is low: {r['hp']:.0%} HP", "party")
+            elif r["hp"] >= 0.4:
+                self._party_low.discard(name)
+
+    def _builder_loop(self):
+        """Builder 101: read the talent cards area and toast when one of your build's talents is offered."""
+        last = {}
+        with detect.MSS() as sct:
+            while self.running:
+                b = self.cfg.get("builder", {})
+                wanted = [t for t in b.get("talents", []) if t not in set(b.get("obtained", []))]
+                if not (b.get("watch") and wanted and self.game_focused()):
+                    self.builder_seen = []
+                    time.sleep(0.5)
+                    continue
+                try:
+                    x, y, w, h = b.get("region") or [480, 160, 960, 700]
+                    gray = cv2.cvtColor(detect.grab(sct, {"left": x, "top": y, "width": w, "height": h}),
+                                        cv2.COLOR_BGR2GRAY)
+                    text = servername.run_ocr(255 - gray)  # game text is light on dark; OCR wants dark on light
+                    found = builder.find_talents(text, wanted)
+                except Exception as e:
+                    self.log(f"builder: couldn't read the screen ({e})")
+                    time.sleep(3)
+                    continue
+                self.builder_seen = found
+                now = time.time()
+                for t in found:
+                    if now - last.get(t, 0) > 30:
+                        last[t] = now
+                        self.log(f"builder: {t} is in your build - take it")
+                        self.notify("BUILDER 101", f"{t} is in your build - take it!", "builder")
+                time.sleep(self.perf("builder"))
 
     def _game_watch_loop(self):
         """Follow the newest Roblox log to know which game you're in, and turn macros
@@ -621,6 +692,7 @@ class Engine:
             self.auto_enabled = True
             if not self.active:
                 self.set_active(True, f"{game} detected")
+                self.notify("Macros online", f"{game} detected - macros armed", "macro")
         elif not game and self.auto_enabled:
             self.auto_enabled = False
             if self.active:

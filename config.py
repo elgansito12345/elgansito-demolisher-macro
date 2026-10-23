@@ -45,11 +45,19 @@ DEFAULTS = {
     "game_window": "Roblox",
     "toggle_key": "f6",
     "pick_key": "f7",
+    "hide_key": "f8",                # hides / shows the app window and overlays
+    "performance": "balanced",        # light / balanced / max: how hard the background loops work
+    "notify": {"enabled": True, "sound_on": True, "sound": "", "image": "", "volume": 70, "seconds": 4,
+               "party_low": True},
+    "builder": {"url": "", "name": "", "talents": [], "obtained": [], "watch": False,
+                "region": [480, 160, 960, 700], "max_rows": 12},
+    "music": {"tracks": [], "volume": 60, "loop": True, "shuffle": False},
     "start_active": False,
     "monitor": 1,
     "scan_interval_ms": 50,
     # bar_style "flat" = plain thick parry/dodge bars (flat_width x flat_height px), "card" = with name + time
-    "ui": {"click_sound": True, "volume": 60, "animations": True},
+    "ui": {"click_sound": True, "volume": 60, "animations": True, "display_name": "ELGANSITO",
+           "tagline": "EDGERUNNER // LV.20", "pfp": "", "background": "", "background_dim": 70},
     "overlay": {"locked": False, "opacity": 0.92, "bar_style": "flat", "flat_width": 178, "flat_height": 12, "flat_outline": 1,
                 "party_width": 400, "party_bar": 12},
     "widgets": {},
@@ -121,6 +129,15 @@ DEFAULTS = {
                 {"action": "click", "button": "right", "ms": 25},
                 {"action": "up", "key": "ctrl"},
             ],
+        },
+        {
+            "name": "Spam F",
+            "enabled": True,
+            "hotkey": "mouse_x2",
+            "block_key": False,
+            "mode": "hold",
+            "interval_ms": 30,
+            "steps": [{"action": "tap", "key": "f", "ms": 15}],
         },
         {
             "name": "roll m1",
@@ -208,6 +225,15 @@ def _migrate(cfg):
         cfg["_icon_slots_v1"] = True
         for cd in cfg.get("cooldowns", []):
             cd.setdefault("icon_slot", {"Dodge": 1, "Parry": 2}.get(cd.get("name"), 0))
+    # v2: Spam F macro (hold the side mouse button to spam parry).
+    if not cfg.get("_macros_v2"):
+        cfg["_macros_v2"] = True
+        macros = cfg.setdefault("macros", [])
+        if not any(m.get("name", "").lower() == "spam f" for m in macros):
+            spam = copy.deepcopy(next(m for m in DEFAULTS["macros"] if m["name"] == "Spam F"))
+            if any(m.get("hotkey") == spam["hotkey"] and m.get("enabled", True) for m in macros):
+                spam["enabled"] = False
+            macros.append(spam)
     # Flat bars: switch the old default colours to the light blue / green look.
     if not cfg.get("_flat_bars_v1"):
         cfg["_flat_bars_v1"] = True

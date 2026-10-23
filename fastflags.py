@@ -23,6 +23,35 @@ PRESETS = {
 }
 
 
+# Your own FastFlag lists, shipped in assets/fastflags/*.json (one-click presets on the Roblox page).
+def preset_sets():
+    import config
+    folder = config.resolve(os.path.join("assets", "fastflags"))
+    out = {}
+    for path in sorted(glob.glob(os.path.join(folder, "*.json"))):
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                out[os.path.splitext(os.path.basename(path))[0]] = {str(k): str(v) for k, v in json.load(f).items()}
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+# Official download pages (opened in your browser; nothing is downloaded by this app).
+DOWNLOADS = {
+    "Froststrap v1.5.0": "https://github.com/Froststrap/Froststrap/releases/tag/v1.5.0",
+    "Bloxstrap (latest)": "https://github.com/bloxstraplabs/bloxstrap/releases/latest",
+}
+
+
+def merge_into(path, flags):
+    """Add / overwrite these flags in a bootstrapper's file, keeping any other flags already there."""
+    current = load(path)
+    current.update(flags)
+    save(path, current)
+    return len(flags)
+
+
 def targets():
     """[(label, path)] of every place flags can be written, best first."""
     out = []

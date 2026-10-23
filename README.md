@@ -11,8 +11,8 @@ It is **not** a RAT, keylogger or spyware: see [What it can see and send](#what-
 ## Download
 
 1. Go to **Releases** (right side of this page) and download
-   `ElgansitoDemolisherMacro-windows.zip`.
-2. Unzip it anywhere and run `ElgansitoDemolisherMacro.exe`. No install, no Python needed.
+   `ElgansitoDemolisherMacro-windows.zip` (everything) or `ElgansitoLite-windows.zip` (lighter, see below).
+2. Unzip it anywhere and run the exe. No install, no Python needed.
 3. Windows SmartScreen may warn because the exe isn't code-signed: click
    **More info → Run anyway**.
 
@@ -30,6 +30,36 @@ positive; the whole source is in this repo. Either:
 
 Settings are saved in `%APPDATA%\ElgansitoDemolisher`, so updating or re-unzipping keeps them.
 
+## What's new in v2
+
+- **Cyberpunk look:** new yellow/cyan UI, your own **profile picture** (click it), name and tagline,
+  and an optional **background image** with a dim slider (Settings → Interface).
+- **Bar styles** (Overlays): *flat*, *neon* (angled cyber bar), *card*, or *image*, where you import
+  your own **empty** and **full** bar pictures (like a Cyberpunk bar) and it fills between them.
+  Optional **bar text** such as `PARRY READY` (`{NAME}` and `{STATUS}` work). All of it is off unless you
+  pick it, so the plain bar stays the fastest.
+- **Line up bars** puts every bar in a neat column; bars also **snap** to each other when dragged close.
+- **Notifications:** toasts in the top-right corner with **your own sound** (pick any mp3/wav) and image,
+  for macros arming, Builder talents and a friend dropping low.
+- **Hide hotkey (F8)** hides every overlay and the window; press again to bring them back.
+- **Spam F:** hold mouse side button 2 to spam F (interval adjustable in Macros).
+- **BUILDER 101:** paste your `deepwoken.co` builder link, it lists the build's talents in an overlay
+  (top right) and, with *watch* on, reads the talent cards on screen and plays your sound when one in
+  your build is offered. Tick talents off as you get them.
+- **Music:** play your own music files with a playlist, loop and shuffle, plus play/pause/next
+  buttons that also control Spotify. (No YouTube streaming and no songs are bundled, for copyright.)
+- **FastFlag presets:** *Elgansito – Bloxstrap basis* (68 flags) and *Elgansito – Froststrap* (256 flags),
+  loaded into the table with one click; optional **merge before launch**. Download buttons for
+  **Froststrap v1.5.0** and **Bloxstrap** (official GitHub releases).
+- **Performance** setting: *light* / *balanced* / *max* changes how often the screen is read and how
+  smooth the overlays draw.
+
+### Elgansito Lite
+
+`ElgansitoLite.exe` is the same app with only the core: cooldown bars (with the bubbles), macros,
+Spam F, overlays, profiles, the Roblox page and FastFlags. It leaves out Party HP, key prompts, Builder 101,
+screen rules and music, so it uses the least CPU and memory. It shares settings and profiles with the full app.
+
 ## What it does
 
 - **Cooldown bars (Parry / Dodge):** thick flat bars you drag anywhere on screen.
@@ -39,7 +69,7 @@ Settings are saved in `%APPDATA%\ElgansitoDemolisher`, so updating or re-unzippi
 - **Macros:** pick a hotkey and add steps (press key, hold key, click, wait...).
   Built in: **T = Roll uppercut** (hold Ctrl → wait 80 ms → Q 30 ms → wait 30 ms → right click 25 ms → release Ctrl)
   and **C = roll m1** (Q 125 ms → right click 75 ms → left click 25 ms).
-  Toggle all macros with **F6**. Macros only work while the Roblox window is focused.
+  **Mouse side button 2 = Spam F.** Toggle all macros with **F6**. Macros only work while the Roblox window is focused.
 - **Party HP:** (size and bar thickness in Overlays) each player's app reads their own health bar (and the "N% HEALTH"
   text under 14%), Deepwoken server name, region, and the red PvP danger skull
   (with how many players). Friends with the same party code see each other as bars;
@@ -84,7 +114,9 @@ Everyone in the party:
 | Keyboard and mouse presses | hotkeys, macros and cooldown timing; nothing is recorded or saved | No |
 | Roblox's own log file (`%LOCALAPPDATA%\Roblox\logs`) | to know which game/server you're in | No (only a one-way hash of the server id, see below) |
 | Your Roblox username, HP %, server name, region, PvP state, server-id hash | Party HP | **Only if you turn on Share with friends**: encrypted with your party code and sent through a public MQTT relay (`broker.emqx.io`); only people with the code can read it |
-| FastFlags file | only when you press **Save flags** | No |
+| FastFlags file | only when you press **Save flags** (or launch with *merge before launch* on) | No |
+| Your deepwoken.co build page | only when you press **Load build** | It downloads that page, nothing is sent |
+| Spotify window title | to show the song in the Music page | No |
 | Windows startup entry | only if you tick **Start with Windows** | No |
 
 There's no other network traffic, no telemetry, no auto-updater, and no reading of
@@ -108,7 +140,9 @@ pip install pyinstaller
 pyinstaller --noconfirm --windowed --name ElgansitoDemolisherMacro --icon icon.ico --collect-all winrt --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 app.py
 ```
 
-Then copy `templates/` next to the exe in `dist/ElgansitoDemolisherMacro/`.
+Lite: same command with `--name ElgansitoLite lite.py` instead of `--name ElgansitoDemolisherMacro ... app.py`.
+
+Then copy `templates/` and `assets/` next to each exe in `dist/<name>/`.
 
 ## Files
 
@@ -126,7 +160,12 @@ Then copy `templates/` next to the exe in `dist/ElgansitoDemolisherMacro/`.
 | `detect.py` | screen capture and matching |
 | `sendinput.py` | sends keys and clicks the way games read them |
 | `fastflags.py` | FastFlags, launching Roblox, start with Windows |
-| `config.py` | settings and defaults |
+| `config.py` | settings, profiles and defaults |
+| `lite.py` | starts Elgansito Lite |
+| `builder.py` | reads deepwoken.co builds and matches talents on screen |
+| `notify.py`, `audio.py` | toasts, your notification sound and the music player |
+| `uifx.py` | click sound and animations |
+| `assets/fastflags/` | the Elgansito FastFlag presets |
 | `Run from source.bat` | runs the app from these files, no exe |
 | `templates/prompts/` | pictures of the game's key prompts |
 

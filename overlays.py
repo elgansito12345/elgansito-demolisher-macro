@@ -1,8 +1,9 @@
 """Standalone always-on-top overlays you can drag anywhere on screen."""
 import math
+import os
 import time
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QMenu, QWidget
 
 import combat
@@ -29,7 +30,10 @@ def widget_catalog(cfg):
         ("status", "Status pill", "Shows whether macros are on and the game is focused."),
         ("macros", "Macro list", "Your macros, their hotkeys, and which one is running."),
         ("party", "Party HP", "Your HP and your friends' HP as bars, shared between Elgansito Demolisher Macro users."),
+        ("builder", "BUILDER 101", "Your build's talents, top-right; ticked ones disappear."),
     ]
+    if os.environ.get("ELGANSITO_LITE") == "1":  # Lite has no Party HP or Builder
+        items = [i for i in items if i[0] not in ("party", "builder")]
     for cd in cfg.get("cooldowns", []):
         items.append((f"cooldown:{cd['name']}", f"{cd['name']} bar",
                       f"Live {cd['name'].lower()} cooldown bar. Flashes when it lands."))
@@ -68,6 +72,31 @@ class Overlay(QWidget):
 
     def moveEvent(self, e):
         self.controller.overlay_moved(self.wid, self.x(), self.y())
+        # Snap to nearby bars a moment after you stop dragging.
+        if not getattr(self, "_snapping", False) and self.controller.cfg["overlay"].get("snap", True):
+            if not hasattr(self, "_snap_timer"):
+                self._snap_timer = QTimer(self, singleShot=True, interval=250, timeout=self.snap)
+            self._snap_timer.start()
+
+    def snap(self):
+        """Line up with the closest other overlay: same left edge, stacked just above or below it."""
+        gap = int(self.controller.cfg["overlay"].get("line_gap", 6))
+        reach = 16
+        x, y = self.x(), self.y()
+        best = None
+        for other in self.controller.overlays.values():
+            if other is self or not other.isVisible():
+                continue
+            ox, oy, ow, oh = other.x(), other.y(), other.width(), other.height()
+            for ny in (oy + oh + gap, oy - self.height() - gap, oy):
+                if abs(y - ny) <= reach and abs(x - ox) <= max(reach, ow // 3):
+                    d = abs(y - ny) + abs(x - ox)
+                    if best is None or d < best[0]:
+                        best = (d, ox, ny)
+        if best and (best[1], best[2]) != (x, y):
+            self._snapping = True
+            self.move(best[1], best[2])
+            self._snapping = False
 
     def background(self, p):
         p.setRenderHint(QPainter.Antialiasing)
@@ -79,22 +108,189 @@ class Overlay(QWidget):
 
 
 class CooldownOverlay(Overlay):
+    """A cooldown bar. Styles: card (name + time), flat (plain thick bar), neon (angled glowing bar like
+    the Cyberpunk one), image (your own skin pictures). Optional text like "AUTOPARRY METER READY"."""
+
     def __init__(self, controller, wid):
         super().__init__(controller, wid, 250, 50)
         self.name = wid.split(":", 1)[1]
+        self.cache = {}  # scaled skin pictures and shapes, rebuilt only when the size or files change
+
+    def text_cfg(self):
+        return self.controller.cfg["overlay"].get("bar_text", {})
 
     def paintEvent(self, e):
         ov = self.controller.cfg["overlay"]
-        flat = ov.get("bar_style", "card") == "flat"
-        size = (ov.get("flat_width", 200), ov.get("flat_height", 12)) if flat else (250, 50)
+        style = ov.get("bar_style", "flat")
+        txt = self.text_cfg()
+        text_on = txt.get("enabled", False) and style != "card"
+        text_h = int(txt.get("size", 9)) + 8 if text_on and txt.get("position", "above") == "above" else 0
+        if style == "card":
+            size = (250, 50)
+        else:
+            size = (int(ov.get("flat_width", 178)), int(ov.get("flat_height", 12)) + text_h)
         if (self.width(), self.height()) != size:
             self.resize(*size)
             return
         p = QPainter(self)
         cd = self.controller.engine.cooldown(self.name)
-        if flat:
-            self.paint_flat(p, cd)
+        if style == "card":
+            self.paint_card(p, cd)
             return
+        bar = QRectF(0.5, text_h + 0.5, self.width() - 1, self.height() - text_h - 1)
+        t = combat.now()
+        frac = 0.0 if cd is None else max(min(1 - cd.remaining(t) / cd.span(), 1), 0)
+        flash = 0.0 if cd is None else max(0.0, 1 - (t - cd.landed_at) / 0.6)
+        colour = QColor(cd.color) if cd is not None else QColor("#69b9e8")
+        if style == "neon":
+            self.paint_neon(p, bar, frac, flash, colour)
+        elif style == "image":
+            self.paint_image(p, bar, frac, flash, colour)
+        else:
+            self.paint_flat(p, bar, frac, flash, colour)
+        if text_on:
+            self.paint_text(p, cd, t, bar, text_h)
+
+    # ---- text -----------------------------------------------------------------
+    def status_text(self, cd, t):
+        if cd is None:
+            return "?"
+        if t - cd.landed_at < 0.6:
+            return "LANDED"
+        left = cd.remaining(t)
+        return "READY" if left == 0 else f"{left:.1f}s"
+
+    def paint_text(self, p, cd, t, bar, text_h):
+        txt = self.text_cfg()
+        label = (cd.label if cd is not None and getattr(cd, "label", "") else self.name)
+        status = self.status_text(cd, t)
+        text = txt.get("template", "{NAME} {STATUS}").format(
+            NAME=label.upper(), name=label, STATUS=status if status[:1].isdigit() else status.upper(), status=status)
+        p.setFont(QFont(txt.get("font", "Bahnschrift"), int(txt.get("size", 9)), QFont.Bold))
+        colour = QColor(txt.get("color", "#ffffff"))
+        if text_h:
+            area = QRectF(2, 0, self.width() - 4, text_h - 2)
+            align = Qt.AlignLeft | Qt.AlignVCenter
+        else:
+            area = bar
+            align = Qt.AlignCenter
+        p.setPen(QColor(0, 0, 0, 200))  # small shadow so it reads on any background
+        p.drawText(area.translated(1, 1), align, text)
+        p.setPen(colour)
+        p.drawText(area, align, text)
+
+    # ---- styles -----------------------------------------------------------------
+    def paint_flat(self, p, rect, frac, flash, colour):
+        """A plain thick bar in the cooldown's own colour, filling up as it recharges."""
+        p.fillRect(rect, QColor(30, 34, 42, 235))
+        if frac > 0:
+            p.fillRect(QRectF(rect.x(), rect.y(), rect.width() * frac, rect.height()), colour)
+        if flash > 0:
+            glow = QColor(255, 255, 255)
+            glow.setAlphaF(0.75 * flash)
+            p.fillRect(rect, glow)
+        outline = self.controller.cfg["overlay"].get("flat_outline", 1)
+        if outline:
+            p.setPen(QPen(QColor(8, 10, 14), outline, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+            p.setBrush(Qt.NoBrush)
+            p.drawRect(rect.adjusted(outline / 2 - 0.5, outline / 2 - 0.5, 0.5 - outline / 2, 0.5 - outline / 2))
+
+    def neon_shape(self, rect):
+        key = ("neon", rect.width(), rect.height(), rect.y())
+        if key not in self.cache:
+            h, x, y, w = rect.height(), rect.x(), rect.y(), rect.width()
+            c = min(h * 0.5, 14)
+            outer = QPainterPath()
+            outer.moveTo(x + c, y)
+            outer.lineTo(x + w - c, y)
+            outer.lineTo(x + w, y + h / 2)
+            outer.lineTo(x + w - c, y + h)
+            outer.lineTo(x + c, y + h)
+            outer.lineTo(x, y + h / 2)
+            outer.closeSubpath()
+            self.cache[key] = (outer, c)
+        return self.cache[key]
+
+    def paint_neon(self, p, rect, frac, flash, colour):
+        """Angled ends, dark track, glowing fill with a slanted front edge and // marks at the ends."""
+        p.setRenderHint(QPainter.Antialiasing)
+        inset = rect.adjusted(3, 3, -3, -3)
+        outer, c = self.neon_shape(rect)
+        glow = QColor(colour)
+        glow.setAlpha(70)
+        p.setPen(QPen(glow, 4))
+        p.setBrush(QColor(10, 14, 12, 235))
+        p.drawPath(outer)
+        p.setPen(QPen(colour, 1.4))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(outer)
+        inner, ci = self.neon_shape(inset)
+        if frac > 0:
+            fill_w = inset.width() * frac
+            slant = min(inset.height(), 12)
+            front = QPainterPath()
+            front.moveTo(inset.x(), inset.y())
+            front.lineTo(inset.x() + fill_w + slant / 2, inset.y())
+            front.lineTo(inset.x() + fill_w - slant / 2, inset.y() + inset.height())
+            front.lineTo(inset.x(), inset.y() + inset.height())
+            front.closeSubpath()
+            grad = QLinearGradient(inset.x(), 0, inset.x() + fill_w, 0)
+            grad.setColorAt(0, colour.darker(130))
+            grad.setColorAt(1, colour.lighter(130))
+            p.fillPath(inner.intersected(front), grad)
+        if flash > 0:
+            white = QColor(255, 255, 255)
+            white.setAlphaF(0.7 * flash)
+            p.fillPath(inner, white)
+        # the "//" marks inside each angled end
+        p.setPen(QPen(colour, max(1.5, rect.height() / 9)))
+        for sx in (rect.x() + c * 0.55, rect.x() + rect.width() - c * 0.55 - c * 0.5):
+            for k in (0, 1):
+                x0 = sx + k * c * 0.3
+                p.drawLine(QPointF(x0, rect.y() + rect.height() * 0.7), QPointF(x0 + c * 0.25, rect.y() + rect.height() * 0.3))
+
+    def skin(self, which, size):
+        sk = self.controller.cfg["overlay"].get("skin", {})
+        path = sk.get(which, "")
+        key = (which, path, size)
+        if key not in self.cache:
+            pix = QPixmap(path) if path and os.path.exists(path) else QPixmap()
+            self.cache[key] = pix.scaled(size[0], size[1], Qt.IgnoreAspectRatio, Qt.SmoothTransformation) \
+                if not pix.isNull() else pix
+        return self.cache[key]
+
+    def paint_image(self, p, rect, frac, flash, colour):
+        """Your skin: an 'empty' picture of the bar, and optionally a 'full' one. The full picture is
+        revealed from left to right inside the fill area as the cooldown recharges. With only the
+        empty picture, a colour fill is drawn inside the fill area and the picture goes on top as a frame."""
+        sk = self.controller.cfg["overlay"].get("skin", {})
+        size = (int(rect.width()), int(rect.height()))
+        empty, full = self.skin("empty", size), self.skin("full", size)
+        x0, y0, x1, y1 = (v / 100 for v in sk.get("fill_area", [4, 22, 96, 78]))
+        area = QRectF(rect.x() + rect.width() * x0, rect.y() + rect.height() * y0,
+                      rect.width() * (x1 - x0), rect.height() * (y1 - y0))
+        reveal = QRectF(area.x(), area.y(), area.width() * frac, area.height())
+        if not full.isNull():
+            if not empty.isNull():
+                p.drawPixmap(rect.topLeft(), empty)
+            p.save()
+            p.setClipRect(reveal)
+            p.drawPixmap(rect.topLeft(), full)
+            p.restore()
+        else:
+            p.fillRect(area, QColor(20, 24, 28, 230))
+            p.fillRect(reveal, colour)
+            if not empty.isNull():
+                p.drawPixmap(rect.topLeft(), empty)
+            else:
+                p.setPen(QPen(colour, 1))
+                p.drawRect(rect)
+        if flash > 0:
+            white = QColor(255, 255, 255)
+            white.setAlphaF(0.6 * flash)
+            p.fillRect(area, white)
+
+    def paint_card(self, p, cd):
         self.background(p)
         p.setFont(QFont("Segoe UI", 10, QFont.DemiBold))
         p.setPen(TEXT)
@@ -149,26 +345,6 @@ class CooldownOverlay(Overlay):
                 w = bar.width() * cleft / cd.cancel_cooldown
                 p.fillRect(QRectF(bar.x(), bar.bottom() + 3, w, 2), QColor("#c084fc"))
 
-
-    def paint_flat(self, p, cd):
-        """A plain thick bar in the cooldown's own colour, filling up as it recharges."""
-        rect = QRectF(0.5, 0.5, self.width() - 1, self.height() - 1)
-        p.fillRect(rect, QColor(30, 34, 42, 235))
-        if cd is not None:
-            t = combat.now()
-            frac = min(1 - cd.remaining(t) / cd.span(), 1)
-            if frac > 0:
-                p.fillRect(QRectF(rect.x(), rect.y(), rect.width() * frac, rect.height()), QColor(cd.color))
-            flash = max(0.0, 1 - (t - cd.landed_at) / 0.6)
-            if flash > 0:
-                glow = QColor(255, 255, 255)
-                glow.setAlphaF(0.75 * flash)
-                p.fillRect(rect, glow)
-        outline = self.controller.cfg["overlay"].get("flat_outline", 1)
-        if outline:
-            p.setPen(QPen(QColor(8, 10, 14), outline, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
-            p.setBrush(Qt.NoBrush)
-            p.drawRect(rect.adjusted(outline / 2 - 0.5, outline / 2 - 0.5, 0.5 - outline / 2, 0.5 - outline / 2))
 
 
 class StatusOverlay(Overlay):
@@ -328,6 +504,49 @@ class PartyOverlay(Overlay):
                     p.fillPath(fill, colour)
 
 
+class BuilderOverlay(Overlay):
+    """BUILDER 101: the talents of your build you still need, top-right of the screen."""
+    ROW = 18
+
+    def __init__(self, controller, wid):
+        super().__init__(controller, wid, 260, 80)
+
+    def paintEvent(self, e):
+        b = self.controller.cfg.get("builder", {})
+        talents = b.get("talents", [])
+        have = set(b.get("obtained", []))
+        todo = [t for t in talents if t not in have]
+        seen = set(self.controller.engine.builder_seen)
+        shown = todo[:int(b.get("max_rows", 12))]
+        want_h = 50 + self.ROW * max(len(shown), 1) + (16 if len(todo) > len(shown) else 0)
+        if self.height() != want_h:
+            self.resize(self.width(), want_h)
+            return
+        p = QPainter(self)
+        self.background(p)
+        p.setPen(QColor("#c084fc"))
+        p.setFont(QFont("Consolas", 8, QFont.Bold))
+        p.drawText(QRectF(12, 6, 140, 16), Qt.AlignVCenter, "BUILDER 101")
+        p.setPen(MUTED)
+        p.drawText(QRectF(120, 6, self.width() - 132, 16), Qt.AlignVCenter | Qt.AlignRight,
+                   f"{len(have)}/{len(talents)}" if talents else "no build")
+        p.setFont(QFont("Bahnschrift", 9, QFont.DemiBold))
+        p.setPen(TEXT)
+        name = p.fontMetrics().elidedText(b.get("name") or "paste a build in Builder", Qt.ElideRight, self.width() - 24)
+        p.drawText(QRectF(12, 22, self.width() - 24, 18), Qt.AlignVCenter, name)
+        p.setFont(QFont("Bahnschrift", 9))
+        for i, t in enumerate(shown):
+            y = 44 + i * self.ROW
+            on_screen = t in seen
+            p.setPen(LANDED if on_screen else QColor(200, 208, 220))
+            p.drawText(QRectF(12, y, self.width() - 24, self.ROW), Qt.AlignVCenter,
+                       ("▶ " if on_screen else "· ") + t)
+        if len(todo) > len(shown):
+            p.setPen(MUTED)
+            p.drawText(QRectF(12, 44 + len(shown) * self.ROW, self.width() - 24, 16), Qt.AlignVCenter,
+                       f"+{len(todo) - len(shown)} more")
+
+
 def make_overlay(controller, wid):
     if wid.startswith("cooldown:"):
         return CooldownOverlay(controller, wid)
@@ -337,4 +556,6 @@ def make_overlay(controller, wid):
         return MacrosOverlay(controller, wid)
     if wid == "party":
         return PartyOverlay(controller, wid)
+    if wid == "builder":
+        return BuilderOverlay(controller, wid)
     return None

@@ -65,6 +65,7 @@ class Cooldown:
         self.key = cfg["key"].lower()
         self.duration = max(cfg["cooldown_ms"], 1) / 1000
         self.color = cfg.get("color", "#4aa3ff")
+        self.label = cfg.get("label", "")  # text shown on the bar instead of the name, e.g. "AUTOPARRY METER"
         cancel = cfg.get("cancel") or {}
         on = cancel.get("enabled", False)
         self.cancel_key = cancel.get("key", "").lower() if on else None
