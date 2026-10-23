@@ -178,6 +178,8 @@ class Engine:
         self.my_hp_raw = None      # raw bar fill, for calibrating
         self.party = []            # [(name, health 0..1 or None, online, is_you)]
         self.party_link = party.PartyLink(self.log)
+        self.party_link.on_chat = lambda name, text: self.notify(f"PARTY // {name}", text, "chat")
+        self.chat_requested = False  # the party message hotkey was pressed
         self.job_id = None          # Roblox server you're in (from the Roblox log)
         self.server = servername.ServerName()
         self._server_read_at = 0.0
@@ -279,6 +281,9 @@ class Engine:
                 return
             if name == self.cfg.get("hide_key"):
                 self.hide_requested = True
+                return
+            if name == self.cfg.get("chat_key") and not LITE and self.cfg.get("party", {}).get("enabled"):
+                self.chat_requested = True
                 return
             if name == self.cfg.get("pick_key"):
                 self.log_cursor()

@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 import audio
 
-ACCENT = {"builder": "#c084fc", "party": "#2de2e6", "macro": "#f3e600", "warn": "#ff3c5f", "info": "#2de2e6"}
+ACCENT = {"builder": "#c084fc", "party": "#2de2e6", "macro": "#f3e600", "warn": "#ff3c5f", "info": "#2de2e6",
+          "chat": "#f3e600"}
 
 
 def default_chime():

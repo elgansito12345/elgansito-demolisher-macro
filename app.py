@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFormLayout, QFrame,
     QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow,
     QPlainTextEdit, QPushButton, QScrollArea, QSizeGrip, QSlider, QSpinBox, QStackedWidget, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
 )
 
 import combat
@@ -880,7 +880,12 @@ class WidgetsPage(Page):
         self.opacity.setValue(int(ov.get("opacity", 0.92) * 100))
         self.opacity.setFixedWidth(200)
         self.opacity.valueChanged.connect(self.set_opacity)
+        self.focus_hide = QCheckBox("Hide overlays when Roblox isn't the focused window")
+        self.focus_hide.setChecked(ov.get("hide_unfocused", True))
+        self.focus_hide.toggled.connect(lambda on: (self.c.cfg["overlay"].__setitem__("hide_unfocused", on),
+                                                    self.c.changed(apply=False)))
         self.body.addWidget(self.lock)
+        self.body.addWidget(self.focus_hide)
         self.body.addWidget(row(QLabel("Opacity"), self.opacity))
 
         def set_ov(key, value):
@@ -966,7 +971,12 @@ class WidgetsPage(Page):
         self.body.addWidget(box)
         pw = spin(ov.get("party_width", 400), 220, 1200, lambda v: set_ov("party_width", v), " px", 10)
         pb = spin(ov.get("party_bar", 12), 3, 60, lambda v: set_ov("party_bar", v), " px")
-        self.body.addWidget(row(QLabel("Party HP  width"), pw, QLabel("bar thickness"), pb))
+        pstyle = combo({"cyber": "Cyber", "classic": "Classic"}, ov.get("party_style", "cyber"),
+                       lambda v: set_ov("party_style", v))
+        plines = spin(ov.get("party_chat_lines", 3), 0, 8, lambda v: set_ov("party_chat_lines", v), " messages")
+        self.body.addWidget(row(QLabel("Party HP  style"), pstyle, QLabel("width"), pw, QLabel("bar thickness"), pb))
+        if not engine_mod.LITE:
+            self.body.addWidget(row(QLabel("Party messages shown on the overlay"), plines))
         self.grid_host = QWidget()
         self.grid = QGridLayout(self.grid_host)
         self.grid.setContentsMargins(0, 8, 0, 0)
@@ -1573,14 +1583,14 @@ class PartyPage(Page):
         user.setPlaceholderText("your Roblox username - this is the name friends see")
         user.editingFinished.connect(lambda: (pcfg.__setitem__("username", user.text().strip()), ch()))
         form.addRow("Your username", user)
-        self.code = QLineEdit(pcfg.get("code", ""))
-        self.code.setPlaceholderText("everyone in the party uses the same code")
-        self.code.editingFinished.connect(lambda: (pcfg.__setitem__("code", self.code.text().strip()), ch()))
+        self.code_edit = QLineEdit(pcfg.get("code", ""))
+        self.code_edit.setPlaceholderText("everyone in the party uses the same code")
+        self.code_edit.editingFinished.connect(lambda: (pcfg.__setitem__("code", self.code_edit.text().strip()), ch()))
         new = QPushButton("New code")
         new.clicked.connect(self.new_code)
         copy_btn = QPushButton("Copy")
-        copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(self.code.text()))
-        form.addRow("Party code", row(self.code, new, copy_btn, stretch=False))
+        copy_btn.clicked.connect(lambda: QApplication.clipboard().setText(self.code_edit.text()))
+        form.addRow("Party code", row(self.code_edit, new, copy_btn, stretch=False))
         friends = QLineEdit(", ".join(pcfg.get("friends", [])))
         friends.setPlaceholderText("usernames to show, comma separated - empty shows everyone with the code")
         friends.editingFinished.connect(lambda: (pcfg.__setitem__(
@@ -1594,6 +1604,35 @@ class PartyPage(Page):
                          "username and HP % are sent, encrypted with the party code, through a free public relay "
                          f"({pcfg.get('broker', 'broker.emqx.io')})."))
         lay.addWidget(box)
+
+        # -- messages
+        box, form = form_group("Messages")
+        self.chat_log = QTextEdit()
+        self.chat_log.setReadOnly(True)
+        self.chat_log.setFixedHeight(150)
+        form.addRow(self.chat_log)
+        self.chat_input = QLineEdit()
+        self.chat_input.setPlaceholderText("message your party - Enter to send")
+        self.chat_input.setMaxLength(party.CHAT_MAX)
+        self.chat_input.returnPressed.connect(self.send_chat)
+        send = QPushButton("Send")
+        send.setObjectName("Primary")
+        send.clicked.connect(self.send_chat)
+        form.addRow(row(self.chat_input, send, stretch=False))
+        quick = []
+        for text in pcfg.get("quick", []):
+            b = QPushButton(text)
+            b.clicked.connect(lambda _=False, t=text: self.send_chat(t))
+            quick.append(b)
+        if quick:
+            form.addRow(row(*quick))
+        self.chat_info = hint("")
+        form.addRow(self.chat_info)
+        form.addRow(hint(f"In game, press {self.c.cfg.get('chat_key', 'f4').upper()} to open a message box over "
+                         "Roblox (change the key in Settings > Hotkeys). Messages are encrypted with the party code "
+                         "like your HP. Friends get a notification and see them on their Party HP overlay."))
+        lay.addWidget(box)
+        self._chat_key = None
 
         # -- key prompts
         pr = self.c.cfg["prompts"]
@@ -1662,9 +1701,33 @@ class PartyPage(Page):
         self.cal_label.setText("calibrated at: " + (", ".join(f"{b:.0%}" for _, b in pts) or "nothing yet (raw fill)"))
 
     # party
+    def send_chat(self, text=None):
+        typed = text is None or text is False
+        err = self.c.engine.party_link.send_chat(self.chat_input.text() if typed else text)
+        self.chat_info.setText(err or "")
+        if not err and typed:
+            self.chat_input.clear()
+
+    def refresh_chat(self):
+        import html
+        chat = list(self.c.engine.party_link.chat)
+        key = (len(chat), chat[-1][0] if chat else 0)
+        if key == self._chat_key:
+            return
+        self._chat_key = key
+        lines = []
+        for t, name, text, mine in chat:
+            colour = "#2de2e6" if mine else "#f3e600"
+            lines.append(f"<span style='color:#5c6b7a'>{time.strftime('%H:%M', time.localtime(t))}</span> "
+                         f"<b style='color:{colour}'>{html.escape('YOU' if mine else name)}&gt;</b> "
+                         f"<span style='color:#e6e8ee'>{html.escape(text)}</span>")
+        self.chat_log.setHtml("<br>".join(lines) or "<span style='color:#5c6b7a'>no messages yet</span>")
+        bar = self.chat_log.verticalScrollBar()
+        bar.setValue(bar.maximum())
+
     def new_code(self):
-        self.code.setText(party.new_code())
-        self.c.cfg["party"]["code"] = self.code.text()
+        self.code_edit.setText(party.new_code())
+        self.c.cfg["party"]["code"] = self.code_edit.text()
         self.c.changed()
 
     # prompts
@@ -1692,6 +1755,7 @@ class PartyPage(Page):
         else:
             self.hp_now.setText(f"<b>{eng.my_hp}%</b>   (raw fill {eng.my_hp_raw:.3f})")
         self.link_status.setText(eng.party_link.status)
+        self.refresh_chat()
         seen = eng.prompt_seen
         if not self.c.cfg["prompts"].get("enabled"):
             self.prompt_now.setText("off")
@@ -2065,6 +2129,9 @@ class SettingsPage(Page):
                                                               lambda k: (cfg.__setitem__("pick_key", k), ch())))
         form.addRow("Hide / show the app", KeyButton(self.c, cfg.get("hide_key", "f8"),
                                                      lambda k: (cfg.__setitem__("hide_key", k), ch())))
+        if not engine_mod.LITE:
+            form.addRow("Party message box", KeyButton(self.c, cfg.get("chat_key", "f4"),
+                                                       lambda k: (cfg.__setitem__("chat_key", k), ch())))
         start = QCheckBox("Start with macros ON")
         start.setChecked(cfg.get("start_active", False))
         start.toggled.connect(lambda on: (cfg.__setitem__("start_active", on), ch()))
@@ -2866,6 +2933,112 @@ class ProfileSwitcher(QWidget):
             self.c.new_profile(name.strip())
 
 
+def force_foreground(hwnd):
+    """Bring a window to the front even while another app (the game) has focus."""
+    user32 = ctypes.windll.user32
+    fg = user32.GetForegroundWindow()
+    me = ctypes.windll.kernel32.GetCurrentThreadId()
+    other = user32.GetWindowThreadProcessId(fg, None)
+    attach = bool(other) and other != me
+    if attach:
+        user32.AttachThreadInput(other, me, True)
+    user32.BringWindowToTop(hwnd)
+    user32.SetForegroundWindow(hwnd)
+    if attach:
+        user32.AttachThreadInput(other, me, False)
+
+
+class QuickChat(QWidget):
+    """The party message box the chat hotkey opens over the game: type, Enter sends, Esc closes.
+    Focus goes back to the game afterwards."""
+
+    def __init__(self, controller):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.c = controller
+        self.return_to = 0
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(480)
+        self.setStyleSheet(
+            "QLabel#Head { color: #f3e600; font: bold 9pt Consolas; }"
+            "QLabel#Info { color: #ff3c5f; font: 8pt Consolas; }"
+            "QLineEdit { background: #0a0e13; color: #e6e8ee; border: 1px solid #2de2e6; padding: 6px 8px;"
+            "  font: 10pt Bahnschrift; selection-background-color: #2de2e6; }"
+            "QPushButton { background: rgba(45,226,230,0.08); color: #2de2e6; border: 1px solid rgba(45,226,230,0.5);"
+            "  padding: 4px 8px; font: 8pt Consolas; }"
+            "QPushButton:hover { background: #f3e600; color: #0a0e13; border-color: #f3e600; }")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(18, 12, 18, 14)
+        lay.setSpacing(8)
+        head = QLabel("// PARTY.MSG &nbsp;&nbsp; <span style='color:#5c6b7a'>ENTER = send &nbsp;&nbsp; ESC = close</span>")
+        head.setObjectName("Head")
+        lay.addWidget(head)
+        self.edit = QLineEdit()
+        self.edit.setMaxLength(party.CHAT_MAX)
+        self.edit.setPlaceholderText("type a message to your party_")
+        self.edit.returnPressed.connect(lambda: self.send())
+        lay.addWidget(self.edit)
+        self.quick_row = QHBoxLayout()
+        self.quick_row.setSpacing(6)
+        lay.addLayout(self.quick_row)
+        self.info = QLabel("")
+        self.info.setObjectName("Info")
+        lay.addWidget(self.info)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h, c = self.width() - 1, self.height() - 1, 14
+        poly = [QPoint(c, 0), QPoint(w, 0), QPoint(w, h - c), QPoint(w - c, h), QPoint(0, h), QPoint(0, c)]
+        p.setBrush(QColor(8, 11, 16, 240))
+        p.setPen(QPen(QColor(45, 226, 230, 140), 1))
+        p.drawPolygon(poly)
+        p.setPen(QPen(QColor("#f3e600"), 2))
+        p.drawLine(1, c, c, 1)
+        p.drawLine(c, 1, 90, 1)
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape:
+            self.close_box()
+        else:
+            super().keyPressEvent(e)
+
+    def open(self):
+        self.return_to = ctypes.windll.user32.GetForegroundWindow()
+        while self.quick_row.count():
+            item = self.quick_row.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for text in self.c.cfg.get("party", {}).get("quick", [])[:6]:
+            b = QPushButton(text)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.clicked.connect(lambda _=False, t=text: self.send(t))
+            self.quick_row.addWidget(b)
+        self.quick_row.addStretch(1)
+        self.info.setText("")
+        self.adjustSize()
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        g = screen.geometry()
+        self.move(g.center().x() - self.width() // 2, g.top() + int(g.height() * 0.62))
+        self.show()
+        self.raise_()
+        force_foreground(int(self.winId()))
+        self.activateWindow()
+        self.edit.setFocus()
+
+    def send(self, text=None):
+        err = self.c.engine.party_link.send_chat(self.edit.text() if text is None else text)
+        if err:
+            self.info.setText(err)
+            return
+        self.edit.clear()
+        self.close_box()
+
+    def close_box(self):
+        self.hide()
+        if self.return_to:
+            force_foreground(self.return_to)
+
+
 class Controller:
     def __init__(self):
         self.engine = engine_mod.Engine()
@@ -2880,6 +3053,8 @@ class Controller:
         self.music = MusicPlayer(self)
         self.notifier = notify.Notifier(self)
         self.hidden = False
+        self._overlays_on = True   # False while hidden, or while Roblox isn't the focused window
+        self.quick_chat = None
         self.window = MainWindow(self)
         self.frame_timer = QTimer(interval=self.engine.perf("overlay_ms"), timeout=self.frame)
         self.frame_timer.start()
@@ -2931,7 +3106,8 @@ class Controller:
             screen = QApplication.primaryScreen().availableGeometry()
             ov.move(screen.center() - QPoint(ov.width() // 2, ov.height() // 2))
         state["visible"] = True
-        ov.show()
+        if self._overlays_on:
+            ov.show()
         if save:
             self.changed(apply=False)
 
@@ -3020,6 +3196,10 @@ class Controller:
         if self.engine.hide_requested:
             self.engine.hide_requested = False
             self.toggle_hidden()
+        if self.engine.chat_requested:
+            self.engine.chat_requested = False
+            self.open_quick_chat()
+        self.sync_overlays()
         want = self.engine.perf("overlay_ms")
         if self.frame_timer.interval() != want:
             self.frame_timer.setInterval(want)
@@ -3045,14 +3225,34 @@ class Controller:
         self.hidden = not self.hidden
         if self.hidden:
             self.window.hide()
-            for ov in self.overlays.values():
-                ov.hide()
         else:
             self.window.showNormal()
-            for wid, ov in self.overlays.items():
-                if self.cfg["widgets"].get(wid, {}).get("visible"):
-                    ov.show()
+        self.sync_overlays()
         self.engine.log("app hidden (press the hide key again to bring it back)" if self.hidden else "app shown")
+
+    def overlays_wanted(self):
+        """Overlays show while the game (or this app) is the focused window, unless hidden with the hide key."""
+        if self.hidden:
+            return False
+        if not self.cfg["overlay"].get("hide_unfocused", True):
+            return True
+        return self.engine.game_focused() or engine_mod.foreground_pid() == os.getpid()
+
+    def sync_overlays(self):
+        on = self.overlays_wanted()
+        if on == self._overlays_on:
+            return
+        self._overlays_on = on
+        for wid, ov in self.overlays.items():
+            if not on:
+                ov.hide()
+            elif self.cfg["widgets"].get(wid, {}).get("visible"):
+                ov.show()
+
+    def open_quick_chat(self):
+        if self.quick_chat is None:
+            self.quick_chat = QuickChat(self)
+        self.quick_chat.open()
 
     def page_classes(self):
         if engine_mod.LITE:

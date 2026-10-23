@@ -46,6 +46,7 @@ DEFAULTS = {
     "toggle_key": "f6",
     "pick_key": "f7",
     "hide_key": "f8",                # hides / shows the app window and overlays
+    "chat_key": "f4",                # opens the party message box in game
     "performance": "balanced",        # light / balanced / max: how hard the background loops work
     "notify": {"enabled": True, "sound_on": True, "sound": "", "image": "", "volume": 70, "seconds": 4,
                "party_low": True},
@@ -59,7 +60,8 @@ DEFAULTS = {
     "ui": {"click_sound": True, "volume": 60, "animations": True, "display_name": "ELGANSITO",
            "tagline": "EDGERUNNER // LV.20", "pfp": "", "background": "", "background_dim": 70},
     "overlay": {"locked": False, "opacity": 0.92, "bar_style": "flat", "flat_width": 178, "flat_height": 12, "flat_outline": 1,
-                "party_width": 400, "party_bar": 12},
+                "party_width": 400, "party_bar": 12, "party_style": "cyber", "party_chat_lines": 3,
+                "hide_unfocused": True},
     "widgets": {},
     # Deepwoken's cooldown bubbles under the health bar (1920x1080): bars sync to them.
     "cd_icons": {"enabled": True, "x": [933, 951, 969, 987], "y": [928, 962]},
@@ -79,6 +81,7 @@ DEFAULTS = {
         "friends": [],
         "broker": "broker.emqx.io",
         "port": 8883,
+        "quick": ["need help!", "on my way", "low hp, backing off", "gg"],
     },
     # Press Deepwoken's Z / X / C / V prompts when they show up (never the teal fakes).
     "prompts": {

@@ -30,6 +30,17 @@ positive; the whole source is in this repo. Either:
 
 Settings are saved in `%APPDATA%\ElgansitoDemolisher`, so updating or re-unzipping keeps them.
 
+## What's new in v2.1
+
+- **Overlays hide when you tab out** of Roblox and come back when you click into the game
+  (they stay visible while you're in this app, so you can still place them). Turn it off in Overlays.
+- **Cyber Party HP:** new look with slanted segmented bars, YOU / PVP tags and a LINKED status
+  (the old look is still there: Overlays → Party HP style → Classic).
+- **Party messages:** chat with your party from the Party HP page, or press **F4** in game for a message
+  box over Roblox (Enter sends, Esc closes, focus goes back to the game). Quick buttons like *need help!*.
+  Friends get a notification with your sound, and the last messages show on the Party HP overlay.
+  Messages are encrypted with the party code, the same way HP is.
+
 ## What's new in v2
 
 - **Cyberpunk look:** new yellow/cyan UI, your own **profile picture** (click it), name and tagline,
@@ -113,7 +124,7 @@ Everyone in the party:
 | Small areas of your screen (health bar, cooldown bubbles, top HUD text, prompt area) | to read HP, cooldowns, server/region, PvP, prompts | No |
 | Keyboard and mouse presses | hotkeys, macros and cooldown timing; nothing is recorded or saved | No |
 | Roblox's own log file (`%LOCALAPPDATA%\Roblox\logs`) | to know which game/server you're in | No (only a one-way hash of the server id, see below) |
-| Your Roblox username, HP %, server name, region, PvP state, server-id hash | Party HP | **Only if you turn on Share with friends**: encrypted with your party code and sent through a public MQTT relay (`broker.emqx.io`); only people with the code can read it |
+| Your Roblox username, HP %, server name, region, PvP state, server-id hash, party messages you send | Party HP | **Only if you turn on Share with friends**: encrypted with your party code and sent through a public MQTT relay (`broker.emqx.io`); only people with the code can read it |
 | FastFlags file | only when you press **Save flags** (or launch with *merge before launch* on) | No |
 | Your deepwoken.co build page | only when you press **Load build** | It downloads that page, nothing is sent |
 | Spotify window title | to show the song in the Music page | No |

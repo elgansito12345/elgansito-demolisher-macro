@@ -12,6 +12,9 @@ READY = QColor("#34d399")
 TEXT = QColor("#e6e8ee")
 MUTED = QColor("#8b93a5")
 LANDED = QColor("#fde047")
+CY_YELLOW = QColor("#f3e600")
+CY_CYAN = QColor("#2de2e6")
+CY_RED = QColor("#ff3c5f")
 
 
 def hp_color(frac):
@@ -22,6 +25,16 @@ def hp_color(frac):
     if frac > 0.15:
         return QColor("#fb923c")
     return QColor("#ef4444")
+
+
+def cyber_hp_color(frac):
+    if frac > 0.60:
+        return QColor("#2de2e6")
+    if frac > 0.35:
+        return QColor("#f3e600")
+    if frac > 0.15:
+        return QColor("#ff9f1c")
+    return QColor("#ff3c5f")
 
 
 def widget_catalog(cfg):
@@ -404,22 +417,221 @@ class MacrosOverlay(Overlay):
 
 
 class PartyOverlay(Overlay):
-    """You and each friend as a bar card in the same style as the Parry / Dodge bars."""
+    """You and each friend as HP bars, plus the latest party messages. Styles: cyber (default) or classic."""
     HEADER = 26
+    CHAT_ROW = 16
+    CHAT_SHOW = 25.0  # seconds a message stays on the overlay
 
     def __init__(self, controller, wid):
         super().__init__(controller, wid, 400, 70)
+        self.cache = {}
+
+    def chat_lines(self):
+        n = int(self.controller.cfg["overlay"].get("party_chat_lines", 3))
+        if n <= 0:
+            return []
+        now = time.time()
+        recent = [m for m in list(self.controller.engine.party_link.chat) if now - m[0] < self.CHAT_SHOW]
+        return recent[-n:]
 
     def paintEvent(self, e):
         ov = self.controller.cfg["overlay"]
+        cyber = ov.get("party_style", "cyber") == "cyber"
         self.bar_h = max(int(ov.get("party_bar", 12)), 3)
-        self.ROW = 42 + self.bar_h
+        self.ROW = (46 if cyber else 42) + self.bar_h
         rows = list(self.controller.engine.party)
-        want = (max(int(ov.get("party_width", 400)), 220), self.HEADER + 8 + self.ROW * max(len(rows), 1))
+        chat = self.chat_lines()
+        chat_h = (8 + self.CHAT_ROW * len(chat)) if chat else 0
+        want = (max(int(ov.get("party_width", 400)), 220),
+                self.HEADER + 8 + self.ROW * max(len(rows), 1) + chat_h)
         if (self.width(), self.height()) != want:
             self.resize(*want)
             return
         p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        if cyber:
+            self.paint_cyber(p, rows)
+        else:
+            self.paint_classic(p, rows)
+        if chat:
+            self.paint_chat(p, chat, cyber)
+
+    # -- cyber
+    def frame_path(self):
+        key = ("frame", self.width(), self.height())
+        if key not in self.cache:
+            self.cache.clear()
+            w, h, c = self.width() - 1, self.height() - 1, 12
+            path = QPainterPath()
+            path.moveTo(0.5 + c, 0.5)
+            path.lineTo(w, 0.5)
+            path.lineTo(w, h - c)
+            path.lineTo(w - c, h)
+            path.lineTo(0.5, h)
+            path.lineTo(0.5, 0.5 + c)
+            path.closeSubpath()
+            self.cache[key] = path
+        return self.cache[key]
+
+    def paint_cyber(self, p, rows):
+        w = self.width()
+        frame = self.frame_path()
+        p.fillPath(frame, QColor(8, 11, 16, 232))
+        # faint scanlines
+        p.setPen(QPen(QColor(45, 226, 230, 9), 1))
+        for y in range(2, self.height(), 3):
+            p.drawLine(1, y, w - 2, y)
+        p.setPen(QPen(QColor(45, 226, 230, 110), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(frame)
+        # yellow corner accents
+        p.setPen(QPen(CY_YELLOW, 2))
+        p.drawLine(QPointF(1, 13), QPointF(13, 1))
+        p.drawLine(QPointF(13, 1), QPointF(70, 1))
+        p.drawLine(QPointF(w - 2, self.height() - 14), QPointF(w - 14, self.height() - 2))
+
+        pcfg = self.controller.cfg.get("party", {})
+        link = self.controller.engine.party_link
+        connected = link.status == "connected"
+        p.setFont(QFont("Consolas", 8, QFont.Bold))
+        p.setPen(CY_YELLOW)
+        p.drawText(QRectF(16, 6, 140, 16), Qt.AlignVCenter, "// PARTY.HP")
+        if not pcfg.get("enabled"):
+            status = "○ OFFLINE"
+        elif connected:
+            status = "● LINKED"
+        else:
+            status = "○ " + link.status.upper()
+        p.setFont(QFont("Consolas", 7))
+        p.setPen(CY_CYAN if connected else MUTED)
+        status = p.fontMetrics().elidedText(status, Qt.ElideRight, w - 150)
+        p.drawText(QRectF(130, 6, w - 144, 16), Qt.AlignVCenter | Qt.AlignRight, status)
+        p.setPen(QPen(QColor(45, 226, 230, 60), 1))
+        p.drawLine(QPointF(14, self.HEADER - 1), QPointF(w - 14, self.HEADER - 1))
+        if not rows:
+            p.setFont(QFont("Consolas", 8))
+            p.setPen(MUTED)
+            p.drawText(QRectF(16, self.HEADER + 8, w - 32, 20), Qt.AlignVCenter, "> turn on in the Party HP page_")
+            return
+        pulse = 0.5 + 0.5 * math.sin(time.time() * 6)
+        for i, row in enumerate(rows):
+            self.paint_cyber_row(p, row, self.HEADER + 6 + i * self.ROW, pulse)
+
+    def paint_cyber_row(self, p, row, y, pulse):
+        w = self.width()
+        name, frac, online, is_you = row["name"], row["hp"], row["online"], row["you"]
+        low = online and frac is not None and frac < 0.5
+        if low:
+            # Under 50%: the row pulses red so it catches your eye.
+            glow = QColor(255, 60, 95)
+            glow.setAlphaF(0.10 + 0.20 * pulse)
+            p.fillRect(QRectF(6, y - 3, w - 12, self.ROW - 4), glow)
+            p.fillRect(QRectF(6, y - 3, 3, self.ROW - 4), CY_RED)
+        if not online:
+            status, colour = "OFFLINE", MUTED
+        elif frac is None:
+            status, colour = "??", MUTED
+        else:
+            status, colour = f"{frac:.0%}", cyber_hp_color(frac)
+        # name, then the YOU and PVP tags
+        p.setFont(QFont("Bahnschrift", 10, QFont.DemiBold))
+        p.setPen(TEXT if online else MUTED)
+        room = w - 110
+        tags = (40 if is_you else 0) + (60 if online and row.get("combat") else 0)
+        label = p.fontMetrics().elidedText(name, Qt.ElideRight, room - tags)
+        p.drawText(QRectF(16, y, room, 18), Qt.AlignVCenter, label)
+        x = 16 + p.fontMetrics().horizontalAdvance(label) + 8
+        p.setFont(QFont("Consolas", 7, QFont.Bold))
+        if is_you:
+            x = self.tag(p, x, y, "YOU", CY_YELLOW, QColor(8, 11, 16))
+        if online and row.get("combat"):
+            self.tag(p, x, y, "PVP" + (f" x{row['count']}" if row.get("count") else ""), CY_RED, QColor(255, 255, 255))
+        p.setFont(QFont("Consolas", 11, QFont.Bold))
+        p.setPen(colour)
+        p.drawText(QRectF(w - 96, y, 80, 18), Qt.AlignVCenter | Qt.AlignRight, status)
+        # second line: server and region, cyan when they're in your server
+        if online:
+            p.setFont(QFont("Consolas", 7))
+            parts = [(row.get("server") or "server unknown").upper()]
+            if row.get("region"):
+                parts.append(row["region"].upper())
+            if row.get("same") and not is_you:
+                parts.append("SAME SERVER")
+            p.setPen(CY_CYAN if row.get("same") else MUTED)
+            text = p.fontMetrics().elidedText("  //  ".join(parts), Qt.ElideRight, w - 32)
+            p.drawText(QRectF(16, y + 18, w - 32, 13), Qt.AlignVCenter, text)
+        self.paint_cyber_bar(p, QRectF(16, y + 35, w - 32, self.bar_h), frac if online else None, colour)
+
+    def tag(self, p, x, y, text, bg, fg):
+        """A small slanted label; returns where the next one goes."""
+        tw = p.fontMetrics().horizontalAdvance(text) + 12
+        shape = QPainterPath()
+        shape.moveTo(x + 4, y + 3)
+        shape.lineTo(x + tw, y + 3)
+        shape.lineTo(x + tw - 4, y + 16)
+        shape.lineTo(x, y + 16)
+        shape.closeSubpath()
+        p.fillPath(shape, bg)
+        p.setPen(fg)
+        p.drawText(QRectF(x, y + 3, tw, 13), Qt.AlignCenter, text)
+        return x + tw + 6
+
+    def paint_cyber_bar(self, p, bar, frac, colour):
+        """Slanted track with 10% segment ticks and a glowing fill."""
+        s = min(bar.height(), 10)
+        track = QPainterPath()
+        track.moveTo(bar.x() + s, bar.y())
+        track.lineTo(bar.right(), bar.y())
+        track.lineTo(bar.right() - s, bar.bottom())
+        track.lineTo(bar.x(), bar.bottom())
+        track.closeSubpath()
+        p.fillPath(track, QColor(20, 26, 34, 240))
+        if frac:
+            fill_w = (bar.width() - s) * frac
+            fill = QPainterPath()
+            fill.moveTo(bar.x() + s, bar.y())
+            fill.lineTo(bar.x() + s + fill_w, bar.y())
+            fill.lineTo(bar.x() + fill_w, bar.bottom())
+            fill.lineTo(bar.x(), bar.bottom())
+            fill.closeSubpath()
+            glow = QColor(colour)
+            glow.setAlpha(80)
+            p.setPen(QPen(glow, 4))
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(fill)
+            grad = QLinearGradient(bar.x(), 0, bar.x() + fill_w + s, 0)
+            grad.setColorAt(0, colour.darker(140))
+            grad.setColorAt(1, colour.lighter(115))
+            p.fillPath(fill, grad)
+        p.setPen(QPen(QColor(8, 11, 16, 200), 2))
+        for k in range(1, 10):
+            x = bar.x() + (bar.width() - s) * k / 10
+            p.drawLine(QPointF(x + s, bar.y()), QPointF(x, bar.bottom()))
+        p.setPen(QPen(QColor(45, 226, 230, 90), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(track)
+
+    # -- messages
+    def paint_chat(self, p, chat, cyber):
+        w = self.width()
+        font = "Consolas" if cyber else "Segoe UI"
+        top = self.height() - 6 - self.CHAT_ROW * len(chat)
+        p.setPen(QPen(QColor(45, 226, 230, 60) if cyber else QColor(255, 255, 255, 30), 1))
+        p.drawLine(QPointF(14, top - 3), QPointF(w - 14, top - 3))
+        for i, (_, name, text, mine) in enumerate(chat):
+            y = top + i * self.CHAT_ROW
+            p.setFont(QFont(font, 8, QFont.Bold))
+            who = ("YOU" if mine else name) + ">"
+            p.setPen(CY_CYAN if mine else CY_YELLOW)
+            nw = p.fontMetrics().horizontalAdvance(who) + 6
+            p.drawText(QRectF(16, y, nw, self.CHAT_ROW), Qt.AlignVCenter, who)
+            p.setFont(QFont(font, 8))
+            p.setPen(TEXT)
+            body = p.fontMetrics().elidedText(text, Qt.ElideRight, w - 32 - nw)
+            p.drawText(QRectF(16 + nw, y, w - 32 - nw, self.CHAT_ROW), Qt.AlignVCenter, body)
+
+    # -- classic (the v1 look)
+    def paint_classic(self, p, rows):
         self.background(p)
         pcfg = self.controller.cfg.get("party", {})
         link = self.controller.engine.party_link
@@ -486,7 +698,7 @@ class PartyOverlay(Overlay):
                 text = p.fontMetrics().elidedText(text, Qt.ElideRight, self.width() - 28)
                 p.drawText(QRectF(14, y + 17, self.width() - 28, 14), Qt.AlignVCenter, text)
             bar = QRectF(14, y + 34, self.width() - 28, self.bar_h)
-            if ov.get("bar_style", "flat") == "flat":
+            if self.controller.cfg["overlay"].get("bar_style", "flat") == "flat":
                 # Same look as the flat Parry / Dodge lines: square, solid, thin dark outline.
                 p.fillRect(bar, QColor(30, 34, 42))
                 if online and frac:
