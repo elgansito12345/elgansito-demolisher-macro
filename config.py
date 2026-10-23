@@ -4,10 +4,15 @@ import json
 import os
 import sys
 
-# When packaged as an exe, keep config and templates next to the exe.
+# The app's own files (exe, shipped pictures) live in HERE. Your settings and recordings live in
+# %APPDATA%\ElgansitoDemolisher so they survive new downloads, re-unzipping, deleting the app
+# folder, or opening the exe straight from inside the zip (Windows runs that from a temp folder).
 HERE = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(HERE, "config.json")
-TEMPLATE_DIR = os.path.join(HERE, "templates")
+DATA_DIR = os.path.join(os.environ.get("APPDATA") or HERE, "ElgansitoDemolisher")
+CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
+TEMPLATE_DIR = os.path.join(DATA_DIR, "templates")   # your captured pictures and recordings
+APP_TEMPLATES = os.path.join(HERE, "templates")      # pictures that ship with the app (prompts)
+OLD_CONFIG = os.path.join(HERE, "config.json")       # where versions before 1.1 kept settings
 
 DEEPWOKEN_UNIVERSE = 1359573625
 DEEPWOKEN_PLACE = 4111023553
@@ -43,6 +48,7 @@ DEFAULTS = {
     "monitor": 1,
     "scan_interval_ms": 50,
     # bar_style "flat" = plain thick parry/dodge bars (flat_width x flat_height px), "card" = with name + time
+    "ui": {"click_sound": True, "volume": 60, "animations": True},
     "overlay": {"locked": False, "opacity": 0.92, "bar_style": "flat", "flat_width": 178, "flat_height": 12, "flat_outline": 1,
                 "party_width": 400, "party_bar": 12},
     "widgets": {},
@@ -100,7 +106,7 @@ DEFAULTS = {
     ],
     "macros": [
         {
-            "name": "Roll parry",
+            "name": "Roll uppercut",
             "enabled": True,
             "hotkey": "t",
             "block_key": False,
@@ -108,26 +114,24 @@ DEFAULTS = {
             "interval_ms": 100,
             "steps": [
                 {"action": "down", "key": "ctrl"},
-                {"action": "wait", "ms": 15},
-                {"action": "tap", "key": "q", "ms": 25},
+                {"action": "wait", "ms": 80},
+                {"action": "tap", "key": "q", "ms": 30},
                 {"action": "wait", "ms": 30},
                 {"action": "click", "button": "right", "ms": 25},
                 {"action": "up", "key": "ctrl"},
             ],
         },
         {
-            "name": "Feint parry",
+            "name": "roll m1",
             "enabled": True,
-            "hotkey": "f",
-            "block_key": True,
+            "hotkey": "c",
+            "block_key": False,
             "mode": "once",
             "interval_ms": 100,
             "steps": [
-                {"action": "click", "button": "right", "ms": 4},
-                {"action": "wait", "ms": 4},
-                {"action": "down", "key": "f"},
-                {"action": "wait_release"},
-                {"action": "up", "key": "f"},
+                {"action": "tap", "key": "q", "ms": 125},
+                {"action": "click", "button": "right", "ms": 75},
+                {"action": "click", "button": "left", "ms": 25},
             ],
         },
     ],
@@ -209,12 +213,19 @@ def _migrate(cfg):
         new = {"#4aa3ff": "#69b9e8", "#ffb347": "#3bb967"}
         for cd in cfg.get("cooldowns", []):
             cd["color"] = new.get(cd.get("color", "").lower(), cd.get("color"))
-    # Add the feint-parry macro once.
-    if not cfg.get("_added_feint_parry"):
-        cfg["_added_feint_parry"] = True
-        names = {m.get("name") for m in cfg.get("macros", [])}
-        if "Feint parry" not in names:
-            cfg.setdefault("macros", []).append(copy.deepcopy(DEFAULTS["macros"][1]))
+    # v1.1: Feint parry removed; Roll uppercut and roll m1 are the built-in macros.
+    if not cfg.get("_macros_v11"):
+        cfg["_macros_v11"] = True
+        macros = [m for m in cfg.get("macros", []) if m.get("name") != "Feint parry"]
+        names = {m.get("name", "").lower() for m in macros}
+        hotkeys = {m.get("hotkey") for m in macros if m.get("enabled", True)}
+        for m in DEFAULTS["macros"]:
+            if m["name"].lower() not in names:
+                m = copy.deepcopy(m)
+                if m["hotkey"] in hotkeys:  # don't fight a macro you already put on that key
+                    m["enabled"] = False
+                macros.append(m)
+        cfg["macros"] = macros
 
 
 def normalise(cfg):
@@ -231,14 +242,42 @@ def normalise(cfg):
     return cfg
 
 
+def find_old_config():
+    """Settings from before 1.1 were kept next to the exe. On first start, carry over the newest
+    one: next to this exe, or in an older download/unzip in Downloads or on the Desktop."""
+    import glob
+    home = os.path.expanduser("~")
+    candidates = [OLD_CONFIG]
+    for base in (os.path.join(home, "Downloads"), os.path.join(home, "Desktop")):
+        for depth in ("*", os.path.join("*", "*"), os.path.join("*", "*", "*")):
+            candidates += glob.glob(os.path.join(base, depth, "config.json"))
+    found = []
+    for path in set(candidates):
+        try:
+            with open(path, encoding="utf-8-sig") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "cooldowns" in data and "macros" in data:
+                found.append((os.path.getmtime(path), path))
+        except (OSError, ValueError):
+            continue
+    return max(found)[1] if found else None
+
+
 def load():
-    if not os.path.exists(CONFIG_PATH):
+    path = CONFIG_PATH
+    if not os.path.exists(path):
+        path = find_old_config() or path  # first start of 1.1: carry over your old settings
+    if not os.path.exists(path):
         return normalise(copy.deepcopy(DEFAULTS))
-    with open(CONFIG_PATH, encoding="utf-8") as f:
-        return normalise(json.load(f))
+    with open(path, encoding="utf-8-sig") as f:
+        cfg = normalise(json.load(f))
+    if path != CONFIG_PATH:
+        save(cfg)
+    return cfg
 
 
 def save(cfg):
+    os.makedirs(DATA_DIR, exist_ok=True)
     tmp = CONFIG_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
@@ -246,4 +285,26 @@ def save(cfg):
 
 
 def resolve(path):
-    return path if os.path.isabs(path) else os.path.join(HERE, path)
+    """A relative path: your data folder first (recordings, captures), then the app folder."""
+    if os.path.isabs(path):
+        return path
+    for base in (DATA_DIR, HERE):
+        full = os.path.join(base, path)
+        if os.path.exists(full):
+            return full
+    return os.path.join(DATA_DIR, path)
+
+
+def export(cfg, path):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def import_file(path):
+    with open(path, encoding="utf-8-sig") as f:
+        data = json.load(f)
+    if not isinstance(data, dict) or "cooldowns" not in data:
+        raise ValueError("that file isn't an Elgansito Demolisher settings file")
+    cfg = normalise(data)
+    save(cfg)
+    return cfg

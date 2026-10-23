@@ -36,6 +36,7 @@ import fastflags
 import overlays
 import party
 import sendinput
+import uifx
 
 STYLE = """
 * { font-family: "Segoe UI"; font-size: 10pt; color: #e6e8ee; }
@@ -66,7 +67,10 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit, QListWidget {
     background: #1b1f29; border: 1px solid #2e3445; border-radius: 7px; padding: 5px 7px; }
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus { border-color: #3b82f6; }
 QComboBox QAbstractItemView { background: #1b1f29; selection-background-color: #2b3550; border: 1px solid #2e3445; }
-QListWidget { padding: 4px; }
+QListWidget { padding: 4px; outline: 0; }
+*:focus { outline: none; }
+QPushButton:focus { outline: none; }
+#SideTitle { font-size: 10pt; font-weight: 700; color: #ffffff; }
 QListWidget::item { padding: 8px; border-radius: 6px; }
 QListWidget::item:selected { background: #2b3550; color: white; }
 QGroupBox { border: 1px solid #262b38; border-radius: 10px; margin-top: 16px; padding: 12px 10px 10px 10px;
@@ -222,9 +226,14 @@ class HexColorButton(ColorButton):
 # ---- screen picker -----------------------------------------------------------
 
 class ScreenPicker(QWidget):
-    """Full-screen frozen screenshot: drag a box to pick an area, or click to pick a colour."""
+    """Full-screen frozen screenshot of one monitor: drag a box to pick an area, or click to pick a colour.
 
-    def __init__(self, image, origin, mode, callback):
+    The screenshot is in real screen pixels, but with two monitors or Windows scaling (2K at 125%,
+    150%...) Qt's window may not be the same size in pixels. So the picture is drawn scaled to fill
+    the window and every mouse position is converted back to screenshot pixels.
+    """
+
+    def __init__(self, image, origin, mode, callback, screen=None):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.image = image
         self.pixmap = to_pixmap(image)
@@ -234,8 +243,30 @@ class ScreenPicker(QWidget):
         self.start = self.end = None
         self.setCursor(Qt.CrossCursor)
         self.setMouseTracking(True)
-        self.setGeometry(origin[0], origin[1], self.pixmap.width(), self.pixmap.height())
         self.mouse = QPoint(0, 0)
+        if screen is not None:
+            self.setGeometry(screen.geometry())
+        else:
+            self.setGeometry(origin[0], origin[1], self.pixmap.width(), self.pixmap.height())
+
+    def show_on(self, screen):
+        self.winId()  # create the native window so it can be moved to the right monitor
+        if screen is not None and self.windowHandle():
+            self.windowHandle().setScreen(screen)
+            self.setGeometry(screen.geometry())
+        self.showFullScreen()
+        self.activateWindow()
+        self.setFocus()
+
+    # widget <-> screenshot pixels
+    def scale(self):
+        return self.pixmap.width() / max(self.width(), 1), self.pixmap.height() / max(self.height(), 1)
+
+    def to_image(self, p):
+        sx, sy = self.scale()
+        x = min(max(int(p.x() * sx), 0), self.image.shape[1] - 1)
+        y = min(max(int(p.y() * sy), 0), self.image.shape[0] - 1)
+        return x, y
 
     def keyPressEvent(self, e):
         if e.key() == Qt.Key_Escape:
@@ -259,14 +290,14 @@ class ScreenPicker(QWidget):
         p = e.position().toPoint()
         ox, oy = self.origin
         if self.mode == "area":
-            rect = QRect(self.start, p).normalized()
-            if rect.width() >= 4 and rect.height() >= 4:
-                self.finish({"region": [rect.x() + ox, rect.y() + oy, rect.width(), rect.height()]})
+            x0, y0 = self.to_image(QRect(self.start, p).normalized().topLeft())
+            x1, y1 = self.to_image(QRect(self.start, p).normalized().bottomRight())
+            if x1 - x0 >= 4 and y1 - y0 >= 4:
+                self.finish({"region": [x0 + ox, y0 + oy, x1 - x0, y1 - y0]})
             else:
                 self.start = None
         else:
-            x = min(max(p.x(), 0), self.image.shape[1] - 1)
-            y = min(max(p.y(), 0), self.image.shape[0] - 1)
+            x, y = self.to_image(p)
             b, g, r = (int(v) for v in self.image[y, x])
             self.finish({"point": [x + ox, y + oy], "color": [r, g, b]})
 
@@ -276,15 +307,18 @@ class ScreenPicker(QWidget):
 
     def paintEvent(self, e):
         p = QPainter(self)
-        p.drawPixmap(0, 0, self.pixmap)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        p.drawPixmap(self.rect(), self.pixmap)
         p.fillRect(self.rect(), QColor(0, 0, 0, 110))
         if self.mode == "area" and self.start is not None:
             rect = QRect(self.start, self.end).normalized()
-            p.drawPixmap(rect, self.pixmap, rect)
+            sx, sy = self.scale()
+            src = QRectF(rect.x() * sx, rect.y() * sy, rect.width() * sx, rect.height() * sy)
+            p.drawPixmap(QRectF(rect), self.pixmap, src)
             p.setPen(QPen(QColor("#3b82f6"), 2))
             p.drawRect(rect)
             p.setPen(Qt.white)
-            p.drawText(rect.bottomLeft() + QPoint(0, 16), f"{rect.width()} x {rect.height()}")
+            p.drawText(rect.bottomLeft() + QPoint(0, 16), f"{int(src.width())} x {int(src.height())} px")
         if self.mode == "point":
             self.draw_magnifier(p)
         text = ("Drag a box around the area.  Esc / right-click to cancel." if self.mode == "area"
@@ -299,7 +333,8 @@ class ScreenPicker(QWidget):
 
     def draw_magnifier(self, p):
         m = self.mouse
-        src = QRect(m.x() - 7, m.y() - 7, 15, 15)
+        x, y = self.to_image(m)
+        src = QRect(x - 7, y - 7, 15, 15)
         dest = QRect(m.x() + 20, m.y() + 20, 150, 150)
         if dest.right() > self.width():
             dest.moveRight(m.x() - 20)
@@ -311,11 +346,41 @@ class ScreenPicker(QWidget):
         cell = dest.width() / 15
         p.setPen(QPen(Qt.white, 1))
         p.drawRect(QRectF(dest.x() + 7 * cell, dest.y() + 7 * cell, cell, cell))
-        x = min(max(m.x(), 0), self.image.shape[1] - 1)
-        y = min(max(m.y(), 0), self.image.shape[0] - 1)
         b, g, r = (int(v) for v in self.image[y, x])
         p.fillRect(QRect(dest.x(), dest.bottom() + 4, dest.width(), 22), QColor(15, 17, 21, 230))
         p.drawText(QRect(dest.x(), dest.bottom() + 4, dest.width(), 22), Qt.AlignCenter, f"rgb {r}, {g}, {b}")
+
+
+def game_monitor(sct, title, fallback_index):
+    """The mss monitor the game window is on (else the one under the mouse, else the setting)."""
+    monitors = sct.monitors[1:]
+    point = None
+    if title:
+        hwnd = ctypes.windll.user32.FindWindowW(None, title)
+        if hwnd and not ctypes.windll.user32.IsIconic(hwnd):
+            from ctypes import wintypes
+            r = wintypes.RECT()
+            ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
+            point = ((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+    if point is None:
+        point = sendinput.cursor_pos()
+    for m in monitors:
+        if m["left"] <= point[0] < m["left"] + m["width"] and m["top"] <= point[1] < m["top"] + m["height"]:
+            return {k: m[k] for k in ("left", "top", "width", "height")}
+    return detect.monitor_box(sct, fallback_index)
+
+
+def qt_screen_for(box):
+    """The Qt screen showing that monitor (matched by position, allowing for Windows scaling)."""
+    best, best_d = None, None
+    for s in QApplication.screens():
+        g, dpr = s.geometry(), s.devicePixelRatio()
+        # Qt may report the screen's position in real pixels or in scaled ones; accept either.
+        d = min(abs(g.x() * dpr - box["left"]) + abs(g.y() * dpr - box["top"]),
+                abs(g.x() - box["left"]) + abs(g.y() - box["top"]))
+        if best is None or d < best_d:
+            best, best_d = s, d
+    return best
 
 
 # ---- detector editor (shared by cooldown landing + screen rules) -----------
@@ -1357,6 +1422,16 @@ class SettingsPage(Page):
 
     def __init__(self, controller):
         super().__init__(controller)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        holder = QWidget()
+        inner = QVBoxLayout(holder)
+        inner.setContentsMargins(0, 0, 14, 0)
+        inner.setSpacing(10)
+        scroll.setWidget(holder)
+        self.body.addWidget(scroll, 1)
+        self.body = inner  # the groups below go inside the scroll area
         cfg = self.c.cfg
         ch = self.c.changed
         box, form = form_group("Game")
@@ -1392,6 +1467,32 @@ class SettingsPage(Page):
         form.addRow("", folder)
         self.body.addWidget(box)
 
+        box, form = form_group("Your settings")
+        form.addRow(hint(f"Everything saves automatically to {config.CONFIG_PATH}. That folder isn't touched by "
+                         "updates, so a new download or re-unzipping keeps all your macros, bars and party "
+                         "settings."))
+        export = QPushButton("Export settings")
+        export.clicked.connect(self.export_settings)
+        imp = QPushButton("Import settings")
+        imp.clicked.connect(self.import_settings)
+        open_data = QPushButton("Open settings folder")
+        open_data.clicked.connect(lambda: (os.makedirs(config.DATA_DIR, exist_ok=True), os.startfile(config.DATA_DIR)))
+        self.settings_lbl = hint("")
+        form.addRow("", row(export, imp, open_data, self.settings_lbl))
+        self.body.addWidget(box)
+
+        ui = cfg.setdefault("ui", {"click_sound": True, "volume": 60, "animations": True})
+        box, form = form_group("Interface")
+        snd = QCheckBox("Click sound")
+        snd.setChecked(ui.get("click_sound", True))
+        snd.toggled.connect(lambda on: (ui.__setitem__("click_sound", on), ch()))
+        vol = spin(ui.get("volume", 60), 0, 100, lambda v: (ui.__setitem__("volume", v), ch()), " % volume", 5)
+        anim = QCheckBox("Animations")
+        anim.setChecked(ui.get("animations", True))
+        anim.toggled.connect(lambda on: (ui.__setitem__("animations", on), ch()))
+        form.addRow("", row(snd, vol, anim))
+        self.body.addWidget(box)
+
         icfg = cfg.setdefault("cd_icons", {"enabled": True, "x": [933, 951, 969, 987], "y": [928, 962]})
         box, form = form_group("Deepwoken cooldown bubbles", True, icfg.get("enabled", True),
                                lambda on: (icfg.__setitem__("enabled", on), ch()))
@@ -1407,6 +1508,27 @@ class SettingsPage(Page):
         self.body.addWidget(box)
         self.body.addStretch(1)
         self.grab_timer = QTimer(self, interval=100, timeout=self.poll_window)
+
+    def export_settings(self):
+        from PySide6.QtWidgets import QFileDialog
+        self.c.flush()
+        path, _ = QFileDialog.getSaveFileName(self, "Export settings", "elgansito-settings.json", "JSON (*.json)")
+        if path:
+            config.export(self.c.cfg, path)
+            self.settings_lbl.setText(f"saved {os.path.basename(path)}")
+
+    def import_settings(self):
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        path, _ = QFileDialog.getOpenFileName(self, "Import settings", "", "JSON (*.json);;All files (*)")
+        if not path:
+            return
+        try:
+            config.import_file(path)
+        except Exception as e:
+            self.settings_lbl.setText(f"couldn't import: {e}")
+            return
+        QMessageBox.information(self, "Settings imported", "Settings imported. The app will restart to load them.")
+        self.c.restart()
 
     def pick_icons(self):
         def picked(res, img, origin):
@@ -1463,6 +1585,7 @@ class RobloxPage(Page):
         lay.setContentsMargins(0, 0, 14, 0)
         scroll.setWidget(holder)
         self.body.addWidget(scroll, 1)
+        lay.addWidget(uifx.Banner())
 
         box, form = form_group("Game detection")
         self.status = QLabel()
@@ -1736,8 +1859,8 @@ class TitleBar(QWidget):
         self.setFixedHeight(38)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(14, 0, 0, 0)
-        dot = QLabel("●")
-        dot.setStyleSheet("color: #3b82f6; font-size: 12pt;")
+        dot = QLabel()
+        dot.setPixmap(uifx.rounded(QPixmap(uifx.asset("app.png")), 22, 22, 6))
         title = QLabel("Elgansito Demolisher Macro")
         title.setObjectName("AppTitle")
         lay.addWidget(dot)
@@ -1778,6 +1901,15 @@ class MainWindow(QMainWindow):
         side_lay = QVBoxLayout(side)
         side_lay.setContentsMargins(10, 12, 10, 12)
         side_lay.setSpacing(4)
+        picture = QLabel()
+        picture.setPixmap(uifx.rounded(QPixmap(uifx.asset("app.png")), 170, 170, 18))
+        picture.setAlignment(Qt.AlignCenter)
+        side_lay.addWidget(picture)
+        side_title = QLabel("Elgansito Demolisher")
+        side_title.setObjectName("SideTitle")
+        side_title.setAlignment(Qt.AlignCenter)
+        side_lay.addWidget(side_title)
+        side_lay.addSpacing(8)
         self.stack = QStackedWidget()
         self.pages = [HomePage(controller), WidgetsPage(controller), CooldownsPage(controller),
                       MacrosPage(controller), PartyPage(controller), RulesPage(controller),
@@ -1809,6 +1941,8 @@ class MainWindow(QMainWindow):
         self.nav[i].setChecked(True)
         self.stack.setCurrentIndex(i)
         self.pages[i].shown()
+        if self.c.cfg.get("ui", {}).get("animations", True):
+            uifx.fade_in(self.pages[i])
 
     def page(self, cls):
         return next(p for p in self.pages if isinstance(p, cls))
@@ -1927,16 +2061,15 @@ class Controller:
             callback(result, image, origin)
 
         def open_picker():
-            if source:
-                image, origin = detect.read_image(source[0]), source[1]
-            else:
-                with detect.MSS() as sct:
-                    box = detect.monitor_box(sct, self.cfg.get("monitor", 1))
+            with detect.MSS() as sct:
+                box = game_monitor(sct, self.cfg.get("game_window", ""), self.cfg.get("monitor", 1))
+                if source:
+                    image, origin = detect.read_image(source[0]), source[1]
+                else:
                     image, origin = detect.grab(sct, box), (box["left"], box["top"])
-            self.picker = ScreenPicker(image, origin, mode, done)
-            self.picker.show()
-            self.picker.activateWindow()
-            self.picker.setFocus()
+            screen = qt_screen_for({"left": origin[0], "top": origin[1]})
+            self.picker = ScreenPicker(image, origin, mode, done, screen)
+            self.picker.show_on(screen)
 
         self.window.showMinimized()
         QTimer.singleShot(350, open_picker)
@@ -1967,6 +2100,17 @@ class Controller:
             if self.waiting_snapshot:
                 self.waiting_snapshot.snapshot_ready(name)
 
+    def restart(self):
+        from PySide6.QtCore import QProcess
+        self.save_timer.stop()       # the imported file is already saved; don't overwrite it
+        self._needs_apply = False
+        self.engine.stop()
+        args = [] if getattr(sys, "frozen", False) else [os.path.abspath(sys.argv[0])]
+        QProcess.startDetached(sys.executable, args)
+        for ov in list(self.overlays.values()):
+            ov.close()
+        QApplication.quit()
+
     def quit(self):
         self.flush()
         self.engine.stop()
@@ -1979,10 +2123,12 @@ def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
     app.setQuitOnLastWindowClosed(False)
-    icon = config.resolve("icon.ico")
+    icon = os.path.join(config.HERE, "icon.ico")
     if os.path.exists(icon):
         app.setWindowIcon(QIcon(icon))
     controller = Controller()
+    fx = uifx.ClickFx(controller)
+    app.installEventFilter(fx)
     controller.window.show()
     sys.exit(app.exec())
 
@@ -1995,7 +2141,8 @@ def run():
         raise
     except Exception:
         import traceback
-        with open(config.resolve("crash.log"), "w", encoding="utf-8") as f:
+        os.makedirs(config.DATA_DIR, exist_ok=True)
+        with open(os.path.join(config.DATA_DIR, "crash.log"), "w", encoding="utf-8") as f:
             traceback.print_exc(file=f)
         raise
 

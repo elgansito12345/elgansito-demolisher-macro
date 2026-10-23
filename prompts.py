@@ -21,7 +21,7 @@ FAKE_BOX_BRIGHTNESS = 100   # real boxes are dark (V ~25-60), fake teal boxes ~1
 class PromptFinder:
     def __init__(self):
         self.templates = []  # (letter, gray template at scan scale, full-size side)
-        for path in glob.glob(os.path.join(config.TEMPLATE_DIR, "prompts", "*", "*.png")):
+        for path in glob.glob(os.path.join(config.APP_TEMPLATES, "prompts", "*", "*.png")):
             letter = os.path.splitext(os.path.basename(path))[0].upper()
             if letter not in LETTERS:
                 continue

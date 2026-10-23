@@ -37,7 +37,8 @@ Settings are saved in `config.json` next to the exe.
   when the game really did the move, refill the moment it's ready again (landed
   parries, roll cancels, Blade Dancer), and learn the real cooldown length.
 - **Macros:** pick a hotkey and add steps (press key, hold key, click, wait...).
-  Built in: **T = Roll parry** and **F = Feint parry** (right click → F).
+  Built in: **T = Roll uppercut** (hold Ctrl → wait 80 ms → Q 30 ms → wait 30 ms → right click 25 ms → release Ctrl)
+  and **C = roll m1** (Q 125 ms → right click 75 ms → left click 25 ms).
   Toggle all macros with **F6**. Macros only work while the Roblox window is focused.
 - **Party HP:** (size and bar thickness in Overlays) each player's app reads their own health bar (and the "N% HEALTH"
   text under 14%), Deepwoken server name, region, and the red PvP danger skull
@@ -50,7 +51,10 @@ Settings are saved in `config.json` next to the exe.
   (or use Save to file / Load from file).
 - **Screen rules:** react to a picture or colour on screen with a key press or click.
 
-Defaults are for a 1920x1080 screen. On other sizes, use the **Pick area** buttons.
+Defaults are for a 1920x1080 screen. On other sizes, use the **Pick area** buttons: the picker
+opens on the monitor the game is on and works with two monitors and Windows scaling (2K at 125%, 150%...).
+
+Clicks have a soft sound and a small animation; both can be turned off in Settings → Interface.
 
 ## Party HP setup
 
@@ -115,6 +119,12 @@ Then copy `templates/` next to the exe in `dist/ElgansitoDemolisherMacro/`.
 | `config.py` | settings and defaults |
 | `Run from source.bat` | runs the app from these files, no exe |
 | `templates/prompts/` | pictures of the game's key prompts |
+
+## Credits
+
+- Deepwoken banner art: *Immortalis* by @MelancholyVal (signed on the image).
+- App picture: an anime screenshot. Both pictures belong to their creators and are only used
+  as decoration; ask and they'll be swapped out.
 
 ## License
 
