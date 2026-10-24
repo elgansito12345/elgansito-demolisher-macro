@@ -141,7 +141,10 @@ class CooldownOverlay(Overlay):
         if style == "card":
             size = (250, 50)
         else:
-            size = (int(ov.get("flat_width", 178)), int(ov.get("flat_height", 12)) + text_h)
+            bar_h = int(ov.get("flat_height", 12))
+            if style == "edge":
+                bar_h = max(bar_h, 16)  # the frame, track and // marks need a little room
+            size = (int(ov.get("flat_width", 178)), bar_h + text_h)
         if (self.width(), self.height()) != size:
             self.resize(*size)
             return
@@ -159,6 +162,10 @@ class CooldownOverlay(Overlay):
             self.paint_neon(p, bar, frac, flash, colour)
         elif style == "image":
             self.paint_image(p, bar, frac, flash, colour)
+        elif style == "edge":
+            self.paint_edge(p, bar, frac, flash, colour)
+            if text_on and not text_h:
+                self.edge_plate(p, cd, t, bar)
         else:
             self.paint_flat(p, bar, frac, flash, colour)
         if text_on:
@@ -261,6 +268,111 @@ class CooldownOverlay(Overlay):
             for k in (0, 1):
                 x0 = sx + k * c * 0.3
                 p.drawLine(QPointF(x0, rect.y() + rect.height() * 0.7), QPointF(x0 + c * 0.25, rect.y() + rect.height() * 0.3))
+
+    def edge_shapes(self, rect):
+        """Frame, inner track and hatching for the Edgerunner bar, cached per size."""
+        key = ("edge", rect.width(), rect.height(), rect.y())
+        if key not in self.cache:
+            m = 2.5  # room for the glow
+            x, y, w, h = rect.x() + m, rect.y() + m, rect.width() - 2 * m, rect.height() - 2 * m
+            c = h * 0.5
+            frame = QPainterPath()
+            frame.moveTo(x + c, y)
+            frame.lineTo(x + w - c, y)
+            frame.lineTo(x + w, y + h / 2)
+            frame.lineTo(x + w - c, y + h)
+            frame.lineTo(x + c, y + h)
+            frame.lineTo(x, y + h / 2)
+            frame.closeSubpath()
+            pad = max(h * 0.2, 2.5)
+            ix, iy, iw, ih = x + c * 1.9, y + pad, w - c * 3.8, h - 2 * pad
+            s = ih * 0.8  # slant of the right-hand end
+            track = QPainterPath()
+            track.moveTo(ix, iy)
+            track.lineTo(ix + iw, iy)
+            track.lineTo(ix + iw - s, iy + ih)
+            track.lineTo(ix, iy + ih)
+            track.closeSubpath()
+            hatch = QPainterPath()
+            step = max(ih * 0.7, 4)
+            k = ix - ih
+            while k < ix + iw:
+                hatch.moveTo(k, iy + ih)
+                hatch.lineTo(k + ih, iy)
+                k += step
+            self.cache[key] = (frame, track, hatch, (ix, iy, iw, ih, s), (x, y, w, h, c))
+        return self.cache[key]
+
+    def paint_edge(self, p, rect, frac, flash, colour):
+        """Edgerunner style, after the Cyberpunk bar: black angled frame with a neon outline and glow,
+        // marks at both ends, a hatched dark track and a bright fill with a slanted front edge."""
+        p.setRenderHint(QPainter.Antialiasing)
+        frame, track, hatch, (ix, iy, iw, ih, s), (x, y, w, h, c) = self.edge_shapes(rect)
+        for width, alpha in ((5, 40), (3, 70)):
+            glow = QColor(colour)
+            glow.setAlpha(alpha)
+            p.setPen(QPen(glow, width))
+            p.setBrush(Qt.NoBrush)
+            p.drawPath(frame)
+        p.setPen(QPen(colour, 1.3))
+        p.setBrush(QColor(6, 8, 6, 245))
+        p.drawPath(frame)
+        p.fillPath(track, QColor(26, 34, 31, 240))
+        p.save()
+        p.setClipPath(track)
+        p.setPen(QPen(QColor(255, 255, 255, 14), 1))
+        p.drawPath(hatch)
+        if frac > 0:
+            fw = (iw - s) * frac + s * min(frac * 4, 1)
+            fill = QPainterPath()
+            fill.moveTo(ix, iy)
+            fill.lineTo(ix + fw, iy)
+            fill.lineTo(ix + fw - s, iy + ih)
+            fill.lineTo(ix, iy + ih)
+            fill.closeSubpath()
+            grad = QLinearGradient(ix, 0, ix + fw, 0)
+            grad.setColorAt(0, colour.lighter(115))
+            grad.setColorAt(0.75, colour)
+            grad.setColorAt(1, colour.darker(135))
+            p.fillPath(fill, grad)
+            shine = QLinearGradient(0, iy, 0, iy + ih)
+            shine.setColorAt(0, QColor(255, 255, 255, 70))
+            shine.setColorAt(0.45, QColor(255, 255, 255, 0))
+            p.fillPath(fill, shine)
+        if flash > 0:
+            white = QColor(255, 255, 255)
+            white.setAlphaF(0.7 * flash)
+            p.fillPath(track, white)
+        p.restore()
+        p.setPen(QPen(QColor(colour.red(), colour.green(), colour.blue(), 120), 1))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(track)
+        # the double // at each end
+        p.setPen(QPen(colour, max(1.6, h / 8), Qt.SolidLine, Qt.FlatCap))
+        gap = max(c * 0.32, 3)
+        for sx in (x + c * 0.75, x + w - c * 0.75 - gap * 1.6):
+            for k in (0, 1):
+                x0 = sx + k * gap
+                p.drawLine(QPointF(x0, y + h * 0.72), QPointF(x0 + h * 0.28, y + h * 0.28))
+
+    def edge_plate(self, p, cd, t, bar):
+        """With text inside the bar, the Edgerunner style puts it on a small slanted plate in the middle."""
+        txt = self.text_cfg()
+        p.setFont(QFont(txt.get("font", "Bahnschrift"), int(txt.get("size", 9)), QFont.Bold))
+        label = (cd.label if cd is not None and getattr(cd, "label", "") else self.name)
+        status = self.status_text(cd, t)
+        text = txt.get("template", "{NAME} {STATUS}").format(
+            NAME=label.upper(), name=label, STATUS=status if status[:1].isdigit() else status.upper(), status=status)
+        tw = p.fontMetrics().horizontalAdvance(text) + 18
+        th = min(bar.height() - 4, p.fontMetrics().height() + 2)
+        cx, cy = bar.center().x(), bar.center().y()
+        plate = QPainterPath()
+        plate.moveTo(cx - tw / 2 + 5, cy - th / 2)
+        plate.lineTo(cx + tw / 2, cy - th / 2)
+        plate.lineTo(cx + tw / 2 - 5, cy + th / 2)
+        plate.lineTo(cx - tw / 2, cy + th / 2)
+        plate.closeSubpath()
+        p.fillPath(plate, QColor(6, 8, 6, 235))
 
     def skin(self, which, size):
         sk = self.controller.cfg["overlay"].get("skin", {})
@@ -757,6 +869,50 @@ class BuilderOverlay(Overlay):
             p.setPen(MUTED)
             p.drawText(QRectF(12, 44 + len(shown) * self.ROW, self.width() - 24, 16), Qt.AlignVCenter,
                        f"+{len(todo) - len(shown)} more")
+
+
+class CardHighlight(QWidget):
+    """A glowing frame around a level-up card that's in your build. Clicks go straight through."""
+    PAD = 34   # the parchment the card is found by is narrower than the card's decorated frame
+
+    def __init__(self, talent):
+        super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+                         | Qt.WindowTransparentForInput)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.talent = talent
+
+    def place(self, rect):
+        """rect = the card's parchment column and the card row's area, in screen pixels."""
+        x, y, w, h = rect
+        top, bottom = y + int(h * 0.05) - 26, y + int(h * 0.97)
+        self.setGeometry(x - self.PAD, top, w + 2 * self.PAD, bottom - top)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        pulse = 0.55 + 0.45 * math.sin(time.time() * 5)
+        frame = QRectF(3, 26, self.width() - 6, self.height() - 29)
+        for width, alpha in ((9, 40), (5, 90)):
+            glow = QColor(CY_YELLOW)
+            glow.setAlphaF(alpha / 255 * (0.6 + 0.4 * pulse))
+            p.setPen(QPen(glow, width))
+            p.drawRoundedRect(frame, 6, 6)
+        p.setPen(QPen(CY_YELLOW, 2))
+        p.drawRoundedRect(frame, 6, 6)
+        p.setFont(QFont("Consolas", 9, QFont.Bold))
+        text = "IN YOUR BUILD"
+        tw = p.fontMetrics().horizontalAdvance(text) + 18
+        tag = QPainterPath()
+        x0 = (self.width() - tw) / 2
+        tag.moveTo(x0 + 6, 2)
+        tag.lineTo(x0 + tw, 2)
+        tag.lineTo(x0 + tw - 6, 22)
+        tag.lineTo(x0, 22)
+        tag.closeSubpath()
+        p.fillPath(tag, CY_YELLOW)
+        p.setPen(QColor(8, 11, 16))
+        p.drawText(QRectF(x0, 2, tw, 20), Qt.AlignCenter, text)
 
 
 def make_overlay(controller, wid):

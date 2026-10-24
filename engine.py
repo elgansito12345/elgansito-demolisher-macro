@@ -18,11 +18,14 @@ from pynput import keyboard, mouse
 import combat
 import config
 import detect
+import hotbar
 import hp
 import builder
+import cards
 import hud
 import icons
 import servername
+import voice
 import party
 import prompts
 import sendinput
@@ -93,6 +96,8 @@ def roblox_running():
 ROBLOX_LOGS = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Roblox", "logs")
 JOIN_RE = re.compile(r"game_join_loadtime: placeid:(\d+).*?universeid:(\d+)")
 JOB_RE = re.compile(r"! Joining game '([0-9a-f-]{36})'")
+MENU_PLACES = {4111023553}         # Deepwoken's start place: the main menu / character select
+MENU_BOX = (140, 215, 380, 170)    # "Characters / Combat Training / Tutorial" list on the menu (1920x1080)
 LEAVE_RE = re.compile(r"Time to disconnect replication data|DisconnectClientInitiated")
 
 VK_NAMES = {v: k for k, v in sendinput.VK.items()}
@@ -153,6 +158,14 @@ class Log:
             return [(s, line) for s, line in self.lines if s > seq]
 
 
+def menu_on_screen(img):
+    """True when Deepwoken's main menu list (Characters / Combat Training / Tutorial) is on screen."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    text = servername.run_ocr(255 - gray).lower()  # light text on a dark scene; OCR wants dark on light
+    hits = sum(w in text for w in ("characters", "combat training", "tutorial", "credits", "merch"))
+    return hits >= 2
+
+
 class Engine:
     def __init__(self):
         self.log = Log()
@@ -178,19 +191,23 @@ class Engine:
         self.my_hp_raw = None      # raw bar fill, for calibrating
         self.party = []            # [(name, health 0..1 or None, online, is_you)]
         self.party_link = party.PartyLink(self.log)
-        self.party_link.on_chat = lambda name, text: self.notify(f"PARTY // {name}", text, "chat")
+        self.party_link.on_chat = self._on_chat
+        self.voice = voice.VoiceReplies(self.log, self._voice_reply)
         self.chat_requested = False  # the party message hotkey was pressed
         self.job_id = None          # Roblox server you're in (from the Roblox log)
         self.server = servername.ServerName()
         self._server_read_at = 0.0
         self._combat_read_at = 0.0
         self.region = None          # e.g. "The Depths", read off the top of the screen
+        self.in_menu = False        # on Deepwoken's main menu (character select)
         self.combat = (False, None) # (in PvP combat, how many players)
         self.prompt_seen = None    # last prompt found: (letter, score, fake)
         self.prompt_presses = 0
         self.notifications = []     # (title, text, kind) for the GUI to show as toasts
         self.hide_requested = False # the hide hotkey was pressed
         self.builder_seen = []      # build talents spotted on screen last scan
+        self.builder_cards = []     # (talent, (x, y, w, h)) cards on screen that are in your build
+        self.mask_rects = []        # where this app's own overlays are, so screen reads skip them
         self._party_low = set()
         self.apply(self.cfg)
 
@@ -228,6 +245,10 @@ class Engine:
         self.cfg = cfg
         self.cooldowns, self.macros, self.rules = cooldowns, macros, rules
         self.party_link.configure(cfg.get("party", {}))
+        vcfg = dict(cfg.get("voice", {}))
+        if LITE or not cfg.get("party", {}).get("enabled"):
+            vcfg["enabled"] = False
+        self.voice.configure(vcfg)
 
     def cooldown(self, name):
         return next((cd for cd in self.cooldowns if cd.name == name), None)
@@ -285,6 +306,8 @@ class Engine:
             if name == self.cfg.get("chat_key") and not LITE and self.cfg.get("party", {}).get("enabled"):
                 self.chat_requested = True
                 return
+            if name and name == self.cfg.get("voice", {}).get("key") and self.cfg.get("voice", {}).get("enabled"):
+                self.voice.held = True
             if name == self.cfg.get("pick_key"):
                 self.log_cursor()
                 return
@@ -324,6 +347,8 @@ class Engine:
 
     def on_release(self, name, injected):
         if name:
+            if name == self.cfg.get("voice", {}).get("key"):
+                self.voice.held = False
             self.held.discard(name)
             if not injected:
                 self.physical_held.discard(name)
@@ -408,6 +433,7 @@ class Engine:
         for listener in getattr(self, "listeners", []):
             listener.stop()
         self.party_link.stop()
+        self.voice.stop()
 
     def _rules_loop(self):
         with detect.MSS() as sct:
@@ -491,17 +517,23 @@ class Engine:
                     now = time.time()
                     if focused and self.universe_id and now - self._server_read_at > self.perf("server"):
                         self._server_read_at = now
-                        srv = self._read_box(sct, cfg.get("server_name", {}).get(
-                            "region", servername.DEFAULT_REGION), servername.read)
-                        reg = self._read_box(sct, hud.REGION_BOX, hud.read_region)
-                        if not srv:  # other screen sizes: search the whole top line instead
-                            srv, auto_reg = self._read_box(sct, hud.TOP_STRIP, hud.auto_server_region) or (None, None)
-                            reg = auto_reg or reg
-                        self.server.add(self.job_id, srv)
-                        if reg:
-                            self.region = reg
+                        self.in_menu = (self.place_id in MENU_PLACES
+                                        or bool(self._read_box(sct, MENU_BOX, menu_on_screen)))
+                        if self.in_menu:
+                            self.region = None
+                        else:
+                            srv = self._read_box(sct, cfg.get("server_name", {}).get(
+                                "region", servername.DEFAULT_REGION), servername.read)
+                            reg = self._read_box(sct, hud.REGION_BOX, hud.read_region)
+                            if not srv:  # other screen sizes: search the whole top line instead
+                                srv, auto_reg = self._read_box(sct, hud.TOP_STRIP, hud.auto_server_region) or (None, None)
+                                reg = auto_reg or reg
+                            self.server.add(self.job_id, srv)
+                            if reg:
+                                self.region = reg
                     if not self.universe_id:
                         self.server.add(None, None)
+                        self.in_menu = False
                         self.region = None
                         self.combat = (False, None)
                     if focused and now - self._combat_read_at > self.perf("combat"):
@@ -519,12 +551,13 @@ class Engine:
                     pcfg = cfg.get("party", {})
                     if pcfg.get("enabled"):
                         in_combat, count = self.combat
-                        self.party_link.publish(self.my_hp, self.server.name, self.job_id,
+                        where = "Main Menu" if self.in_menu else self.server.name
+                        self.party_link.publish(self.my_hp, where, self.job_id,
                                                 region=self.region, combat=in_combat, count=count)
                         my_job = party.job_hash(self.job_id)
                         rows = [{"name": pcfg.get("username") or "You", "you": True, "online": True,
                                  "hp": None if self.my_hp is None else self.my_hp / 100,
-                                 "server": self.server.name, "same": False, "region": self.region,
+                                 "server": where, "same": False, "region": self.region,
                                  "combat": in_combat, "count": count}]
                         for m in self.party_link.snapshot(pcfg.get("friends", [])):
                             m["you"] = False
@@ -550,26 +583,33 @@ class Engine:
     def _icons_loop(self):
         """Read the game's cooldown bubbles ~60x a second and sync the bars to them."""
         reader = icons.IconReader()
+        bar_reader = hotbar.HotbarReader()
         self.icon_states = []
         with detect.MSS() as sct:
             while self.running:
                 icfg = self.cfg.get("cd_icons", icons.DEFAULT)
-                synced = [cd for cd in self.cooldowns if cd.icon_slot]
-                if not (icfg.get("enabled") and synced and self.game_focused()):
+                synced = [cd for cd in self.cooldowns if cd.icon_slot] if icfg.get("enabled") else []
+                mantras = [cd for cd in self.cooldowns if cd.hotbar_slot and not cd.icon_slot]
+                if not ((synced or mantras) and self.game_focused()):
                     self.icon_states = []
                     time.sleep(0.1)
                     continue
                 try:
-                    states = reader.read(detect.grab(sct, icons.capture_box(icfg)), icfg)
+                    states = reader.read(detect.grab(sct, icons.capture_box(icfg)), icfg) if synced else []
+                    hcfg = self.cfg.get("hotbar", hotbar.DEFAULT)
+                    slots = bar_reader.read(detect.grab(sct, hotbar.capture_box(hcfg)), hcfg,
+                                            {cd.hotbar_slot for cd in mantras}) if mantras else {}
                 except Exception as e:
-                    self.log(f"cooldown bubbles: {e}")
+                    self.log(f"cooldown bubbles / hotbar: {e}")
                     time.sleep(1)
                     continue
                 self.icon_states = states
                 t = combat.now()
-                for cd in synced:
-                    if cd.icon_slot <= len(states) and states[cd.icon_slot - 1]:
-                        msg = cd.icon_update(states[cd.icon_slot - 1], t)
+                updates = [(cd, states[cd.icon_slot - 1]) for cd in synced if cd.icon_slot <= len(states)]
+                updates += [(cd, slots.get(cd.hotbar_slot)) for cd in mantras]
+                for cd, state in updates:
+                    if state:
+                        msg = cd.icon_update(state, t)
                         if msg:
                             self.log(msg)
                 time.sleep(self.perf("icons"))
@@ -613,6 +653,19 @@ class Engine:
                     self.log(f"pressed {found[0]} prompt ({found[1]:.2f})")
                 time.sleep(self.perf("prompts"))
 
+    def _on_chat(self, name, text):
+        """A friend's message: show it, and listen for a spoken reply for a few seconds."""
+        vcfg = self.cfg.get("voice", {})
+        listening = vcfg.get("enabled") and self.voice.status.startswith("ready")
+        if listening:
+            self.voice.listen_for(float(vcfg.get("listen_s", 6)))
+        self.notify(f"PARTY // {name}", text + ("   [say yes / no to reply]" if listening else ""), "chat")
+
+    def _voice_reply(self, phrase):
+        err = self.party_link.send_chat(phrase)
+        self.log(f"voice reply: {phrase}" + (f" (not sent: {err})" if err else ""))
+        self.notify("VOICE REPLY", f"sent: {phrase}" if not err else f"heard '{phrase}' but {err}", "chat")
+
     def _check_party_low(self, rows):
         """Toast once when a friend drops under 30% HP."""
         if not self.cfg.get("notify", {}).get("party_low", True):
@@ -628,34 +681,49 @@ class Engine:
                 self._party_low.discard(name)
 
     def _builder_loop(self):
-        """Builder 101: read the talent cards area and toast when one of your build's talents is offered."""
+        """Builder 101: when Deepwoken shows a row of level-up cards, read each card's title and flag the
+        ones in your build (a notification and a highlight around the card). Single cards, like the
+        tooltip you get hovering a talent in your inventory, are ignored."""
         last = {}
         with detect.MSS() as sct:
             while self.running:
                 b = self.cfg.get("builder", {})
-                wanted = [t for t in b.get("talents", []) if t not in set(b.get("obtained", []))]
-                if not (b.get("watch") and wanted and self.game_focused()):
-                    self.builder_seen = []
+                talents = b.get("talents", [])
+                if not (b.get("watch") and talents and self.game_focused()):
+                    self.builder_seen, self.builder_cards = [], []
                     time.sleep(0.5)
                     continue
+                x, y, w, h = b.get("cards") or cards.DEFAULT_AREA
                 try:
-                    x, y, w, h = b.get("region") or [480, 160, 960, 700]
-                    gray = cv2.cvtColor(detect.grab(sct, {"left": x, "top": y, "width": w, "height": h}),
-                                        cv2.COLOR_BGR2GRAY)
-                    text = servername.run_ocr(255 - gray)  # game text is light on dark; OCR wants dark on light
-                    found = builder.find_talents(text, wanted)
+                    img = detect.grab(sct, {"left": x, "top": y, "width": w, "height": h}).copy()
+                    # Blank out this app's own overlays, so their text is never read as a card.
+                    for rx, ry, rw, rh in list(self.mask_rects):
+                        x0, y0 = max(rx - x, 0), max(ry - y, 0)
+                        x1, y1 = min(rx + rw - x, w), min(ry + rh - y, h)
+                        if x1 > x0 and y1 > y0:
+                            img[y0:y1, x0:x1] = 0
+                    row = cards.read_row(img)
                 except Exception as e:
                     self.log(f"builder: couldn't read the screen ({e})")
                     time.sleep(3)
                     continue
-                self.builder_seen = found
+                have = set(b.get("obtained", []))
+                seen, hits = [], []
+                for title, (x0, x1) in row:
+                    t = builder.match_title(title, talents)
+                    if t:
+                        seen.append(t)
+                        if t not in have:
+                            hits.append((t, (x + x0, y, x1 - x0, h)))
+                self.builder_seen, self.builder_cards = seen, hits
                 now = time.time()
-                for t in found:
+                for t, _ in hits:
                     if now - last.get(t, 0) > 30:
                         last[t] = now
                         self.log(f"builder: {t} is in your build - take it")
                         self.notify("BUILDER 101", f"{t} is in your build - take it!", "builder")
-                time.sleep(self.perf("builder"))
+                # No cards: a cheap colour check, so look often. Cards up: OCR, so slow down.
+                time.sleep(self.perf("builder") if row else 0.25)
 
     def _game_watch_loop(self):
         """Follow the newest Roblox log to know which game you're in, and turn macros

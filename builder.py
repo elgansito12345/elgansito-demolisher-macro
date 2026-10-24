@@ -54,3 +54,29 @@ def find_talents(screen_text, talents, threshold=0.86):
                 found.append(t)
                 break
     return found
+
+
+def canon(text):
+    """Lowercase letters with the game font's usual OCR mix-ups folded together (c/e, l/i, rn/m...)."""
+    t = norm(text).replace(" ", "")
+    for a, b in (("rn", "m"), ("vv", "w"), ("c", "e"), ("l", "i"), ("1", "i"), ("|", "i"), ("0", "o"), ("5", "s")):
+        t = t.replace(a, b)
+    return t
+
+
+def match_title(title, talents, threshold=0.8):
+    """The talent a card's title is (best match above the threshold), or None."""
+    got = canon(title)
+    if len(got) < 3:
+        return None
+    best, best_score = None, threshold
+    for t in talents:
+        want = canon(t)
+        if not want:
+            continue
+        score = difflib.SequenceMatcher(None, got, want).ratio()
+        if want in got and len(want) >= 5 and len(want) >= 0.6 * len(got):
+            score = max(score, 0.9)  # a little extra text around the title (a trailing mark, a stray letter)
+        if score > best_score:
+            best, best_score = t, score
+    return best

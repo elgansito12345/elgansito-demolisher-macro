@@ -36,10 +36,13 @@ import fastflags
 import overlays
 import party
 import sendinput
+import servername
 import audio
 import builder
+import cards
 import notify
 import uifx
+import voice
 
 STYLE = """
 * { font-family: "Bahnschrift", "Segoe UI"; font-size: 10pt; color: #c9d3dc; }
@@ -891,7 +894,7 @@ class WidgetsPage(Page):
         def set_ov(key, value):
             self.c.cfg["overlay"][key] = value
             self.c.changed(apply=False)
-        style = combo({"flat": "Flat bars", "neon": "Neon (angled, glowing)", "image": "My own skin pictures",
+        style = combo({"flat": "Flat bars", "neon": "Neon (angled, glowing)", "edge": "Edgerunner (like the Cyberpunk bar)", "image": "My own skin pictures",
                        "card": "Cards (name + time)"}, ov.get("bar_style", "flat"), lambda v: set_ov("bar_style", v))
         width = spin(ov.get("flat_width", 178), 40, 1600, lambda v: set_ov("flat_width", v), " px", 10)
         height = spin(ov.get("flat_height", 12), 2, 200, lambda v: set_ov("flat_height", v), " px")
@@ -1038,6 +1041,7 @@ class ListPage(Page):
         delete.clicked.connect(self.delete)
         left.addWidget(add)
         left.addWidget(row(dup, delete, stretch=False))
+        self.left = left
         split.addLayout(left)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -1157,8 +1161,26 @@ class CooldownsPage(ListPage):
     add_label = "Add cooldown"
     new_name = "New cooldown"
 
+    def __init__(self, controller):
+        super().__init__(controller)
+        mantra = QPushButton("+ Mantra bar")
+        mantra.setToolTip("A bar for a mantra on your hotbar: it follows the slot going dark while on cooldown.")
+        mantra.clicked.connect(self.add_mantra)
+        self.left.insertWidget(2, mantra)
+
     def new_item(self, name):
         return config.new_cooldown(name)
+
+    def add_mantra(self):
+        used = {cd.get("hotbar_slot") for cd in self.items}
+        slot = next((n for n in (4, 5, 6, 7, 8, 9, 10, 3, 2, 1) if n not in used), 4)
+        cd = config.new_cooldown(self.unique(f"Mantra {slot % 10}"))
+        cd.update(key=str(slot % 10), hotbar_slot=slot, cooldown_ms=8000, color="#c084fc")
+        cd["cancel"]["enabled"] = False
+        self.items.append(cd)
+        self.c.changed()
+        self.shown()
+        self.list.setCurrentRow(len(self.items) - 1)
 
     def deleted(self, item):
         self.c.hide_overlay(f"cooldown:{item['name']}")
@@ -1180,6 +1202,11 @@ class CooldownsPage(ListPage):
                                              cd.get("icon_slot", 0),
                                              lambda v: (cd.__setitem__("icon_slot", v), ch())),
                                        hint("syncs this bar with the game's cooldown bubble under your health bar")))
+        slots = {0: "none"}
+        slots.update({n: f"slot {n % 10}" for n in range(1, 11)})
+        form.addRow("Hotbar slot", row(combo(slots, cd.get("hotbar_slot", 0),
+                                             lambda v: (cd.__setitem__("hotbar_slot", v), ch())),
+                                       hint("for mantras: follows that hotbar slot going dark while on cooldown")))
         live = self.c.engine.cooldown(cd["name"])
         if live and live.natural:
             form.addRow("", hint(f"learned from the game: {live.span():.2f}s per use "
@@ -1634,6 +1661,31 @@ class PartyPage(Page):
         lay.addWidget(box)
         self._chat_key = None
 
+        # -- voice replies
+        vc = self.c.cfg["voice"]
+        box, form = form_group("Voice replies", True, vc.get("enabled", False),
+                               lambda on: (vc.__setitem__("enabled", on), ch()))
+        form.addRow(hint("When a friend messages, say a reply (\"yes\", \"no\", \"on my way\"...) within a few "
+                         "seconds and it's sent for you. Windows' offline speech recognizer listens only then, or "
+                         "while you hold the voice key."))
+        mics = voice.list_mics()
+        mic = combo({m: m for m in (mics or ["(no microphone found)"])}, vc.get("mic") or (mics[0] if mics else ""),
+                    lambda v: (vc.__setitem__("mic", v), ch()))
+        form.addRow("Microphone", mic)
+        form.addRow("Listen for", spin(vc.get("listen_s", 6), 2, 30, lambda v: (vc.__setitem__("listen_s", v), ch()),
+                                       " s after a message"))
+        form.addRow("Hold to talk", row(KeyButton(self.c, vc.get("key", ""), lambda k: (vc.__setitem__("key", k), ch())),
+                                        hint("optional: hold it and say a phrase to send it any time")))
+        phrases = QLineEdit(", ".join(vc.get("phrases", [])))
+        phrases.editingFinished.connect(lambda: (vc.__setitem__(
+            "phrases", [p.strip().lower() for p in phrases.text().split(",") if p.strip()] or list(voice.PHRASES)), ch()))
+        form.addRow("Phrases", phrases)
+        self.voice_status = QLabel()
+        test = QPushButton("Listen now (6 s)")
+        test.clicked.connect(lambda: self.c.engine.voice.listen_for(6))
+        form.addRow("Status", row(self.voice_status, test))
+        lay.addWidget(box)
+
         # -- key prompts
         pr = self.c.cfg["prompts"]
         box, form = form_group("Press Z / X / C / V prompts", True, pr.get("enabled", False),
@@ -1756,6 +1808,7 @@ class PartyPage(Page):
             self.hp_now.setText(f"<b>{eng.my_hp}%</b>   (raw fill {eng.my_hp_raw:.3f})")
         self.link_status.setText(eng.party_link.status)
         self.refresh_chat()
+        self.voice_status.setText(eng.voice.status + ("  -  LISTENING" if eng.voice.listening() else ""))
         seen = eng.prompt_seen
         if not self.c.cfg["prompts"].get("enabled"):
             self.prompt_now.setText("off")
@@ -1796,19 +1849,32 @@ class BuilderPage(Page):
         self.body.addWidget(box)
 
         box, form = form_group("Talent card alerts")
-        watch = QCheckBox("Watch the screen for talent cards and notify me when one is in my build")
+        watch = QCheckBox("Watch for level-up cards and notify me when one is in my build")
         watch.setChecked(b.get("watch", False))
         watch.toggled.connect(lambda on: (b.__setitem__("watch", on), self.c.changed()))
         form.addRow("", watch)
-        pick = QPushButton("Pick the talent card area")
+        glow = QCheckBox("Highlight the card on screen")
+        glow.setChecked(b.get("highlight", True))
+        glow.toggled.connect(lambda on: (b.__setitem__("highlight", on), self.c.changed(apply=False)))
+        form.addRow("", glow)
+        pick = QPushButton("Pick the card row")
+        pick.setToolTip("Drag a box around the whole row of cards, from just above the titles to the bottom.")
         pick.clicked.connect(self.pick_area)
+        reset = QPushButton("Default")
+        reset.clicked.connect(lambda: (b.pop("cards", None), self.c.changed(), self.fill()))
         self.area = hint("")
-        form.addRow("", row(pick, self.area))
+        form.addRow("", row(pick, reset, self.area))
         self.seen = QLabel("")
         form.addRow("Right now", self.seen)
-        form.addRow(hint("Reads the text in that area a few times a second (Windows OCR, offline) and matches it "
-                         "against your build, allowing small misreads. Tick talents below once you have them so "
-                         "they stop alerting. Uses some CPU while on; it's off when the game isn't focused."))
+        form.addRow(hint("Only a row of 2+ cards side by side counts (the cards you pick from on level up), so "
+                         "hovering talents in your inventory or the talent list never sets it off. Each card's "
+                         "title is read with Windows OCR (offline) and matched to your build."))
+        sync = QPushButton("Sync from my in-game talent list")
+        sync.setToolTip("Ticks every talent of your build that's in your in-game talent list.")
+        sync.clicked.connect(self.sync_owned)
+        form.addRow("", row(sync))
+        form.addRow(hint("Open your talent list in game first. This window minimises, and 3 seconds later the "
+                         "screen is read once and the talents you already have are ticked, so they stop alerting."))
         self.body.addWidget(box)
 
         box = QGroupBox("Talents in the build")
@@ -1857,8 +1923,9 @@ class BuilderPage(Page):
             self.status.setText(f"{b.get('name', 'Build')}: {len(have)} / {len(talents)} talents ticked as obtained")
         else:
             self.status.setText("no build loaded yet")
-        r = b.get("region") or [480, 160, 960, 700]
-        self.area.setText("area: {} x {} at ({}, {})".format(r[2], r[3], r[0], r[1]))
+        r = b.get("cards") or cards.DEFAULT_AREA
+        self.area.setText("card row: {} x {} at ({}, {}){}".format(r[2], r[3], r[0], r[1],
+                                                                  "" if b.get("cards") else " (default)"))
 
     def ticked(self, item):
         have = self.c.cfg["builder"].setdefault("obtained", [])
@@ -1873,10 +1940,48 @@ class BuilderPage(Page):
     def pick_area(self):
         def picked(res, img, origin):
             if res and "region" in res:
-                self.c.cfg["builder"]["region"] = res["region"]
+                self.c.cfg["builder"]["cards"] = res["region"]
                 self.c.changed()
                 self.fill()
         self.c.pick("area", picked)
+
+    def sync_owned(self):
+        if not self.c.cfg["builder"].get("talents"):
+            self.status.setText("load a build first")
+            return
+        self.status.setText("open your talent list in game - reading it in 3 seconds...")
+        self.c.window.showMinimized()
+        self.c.scanning = True  # hides this app's overlays and toasts so they aren't read
+        self.c.sync_overlays()
+        for t in self.c.notifier.toasts:
+            t.hide()
+        QTimer.singleShot(3000, self._sync_read)
+
+    def _sync_read(self):
+        b = self.c.cfg["builder"]
+        try:
+            with detect.MSS() as sct:
+                box = game_monitor(sct, self.c.cfg.get("game_window", ""), self.c.cfg.get("monitor", 1))
+                img = detect.grab(sct, box)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            found = builder.find_talents(servername.run_ocr(255 - gray), b.get("talents", []))
+            error = None
+        except Exception as e:
+            found, error = [], e
+        finally:
+            self.c.scanning = False
+            self.c.sync_overlays()
+            self.c.show_main()
+        if error:
+            self.status.setText(f"couldn't read the screen: {error}")
+            return
+        have = b.setdefault("obtained", [])
+        new = [t for t in found if t not in have]
+        have.extend(new)
+        self.c.changed()
+        self.fill()
+        self.status.setText(f"synced: {len(found)} of your build's talents are in your list, {len(new)} newly ticked"
+                            if found else "didn't find any of your build's talents - was the talent list open?")
 
     def tick(self):
         seen = self.c.engine.builder_seen
@@ -3055,6 +3160,8 @@ class Controller:
         self.hidden = False
         self._overlays_on = True   # False while hidden, or while Roblox isn't the focused window
         self.quick_chat = None
+        self.highlights = {}       # talent -> CardHighlight around a level-up card
+        self.scanning = False      # reading the whole screen: keep this app's windows out of the way
         self.window = MainWindow(self)
         self.frame_timer = QTimer(interval=self.engine.perf("overlay_ms"), timeout=self.frame)
         self.frame_timer.start()
@@ -3184,7 +3291,7 @@ class Controller:
 
     # timers
     def frame(self):
-        for ov in self.overlays.values():
+        for ov in list(self.overlays.values()) + list(self.highlights.values()):
             if ov.isVisible():
                 ov.update()
 
@@ -3200,6 +3307,12 @@ class Controller:
             self.engine.chat_requested = False
             self.open_quick_chat()
         self.sync_overlays()
+        self.sync_highlights()
+        # Where this app's windows are (in screen pixels), so screen reading can skip them.
+        rects = [w.geometry() for w in list(self.overlays.values()) + list(self.notifier.toasts) if w.isVisible()]
+        dpr = QApplication.primaryScreen().devicePixelRatio()
+        self.engine.mask_rects = [(int(r.x() * dpr), int(r.y() * dpr), int(r.width() * dpr), int(r.height() * dpr))
+                                  for r in rects]
         want = self.engine.perf("overlay_ms")
         if self.frame_timer.interval() != want:
             self.frame_timer.setInterval(want)
@@ -3232,7 +3345,7 @@ class Controller:
 
     def overlays_wanted(self):
         """Overlays show while the game (or this app) is the focused window, unless hidden with the hide key."""
-        if self.hidden:
+        if self.hidden or self.scanning:
             return False
         if not self.cfg["overlay"].get("hide_unfocused", True):
             return True
@@ -3248,6 +3361,24 @@ class Controller:
                 ov.hide()
             elif self.cfg["widgets"].get(wid, {}).get("visible"):
                 ov.show()
+
+    def sync_highlights(self):
+        """Glowing frames around level-up cards that are in your build."""
+        on = self._overlays_on and self.cfg.get("builder", {}).get("highlight", True)
+        hits = dict(self.engine.builder_cards) if on else {}
+        for t in list(self.highlights):
+            if t not in hits:
+                hl = self.highlights.pop(t)
+                hl.close()
+                hl.deleteLater()
+        dpr = QApplication.primaryScreen().devicePixelRatio()
+        for t, (x, y, w, h) in hits.items():
+            hl = self.highlights.get(t)
+            if hl is None:
+                hl = self.highlights[t] = overlays.CardHighlight(t)
+            hl.place((int(x / dpr), int(y / dpr), int(w / dpr), int(h / dpr)))
+            if not hl.isVisible():
+                hl.show()
 
     def open_quick_chat(self):
         if self.quick_chat is None:

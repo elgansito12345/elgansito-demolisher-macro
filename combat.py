@@ -84,6 +84,8 @@ class Cooldown:
         self.landed_at = -1e9
         # Sync with the game's own cooldown bubble (1-based slot under the health bar, 0 = off).
         self.icon_slot = int(cfg.get("icon_slot", 0) or 0)
+        # Or follow a hotbar slot (1-10) going dark, for mantras.
+        self.hotbar_slot = int(cfg.get("hotbar_slot", 0) or 0)
         self.icon_state = None
         self.icon_seen_at = -1e9
         self.press_at = -1e9
@@ -100,7 +102,7 @@ class Cooldown:
         return self.duration
 
     def icon_live(self, t):
-        return self.icon_slot > 0 and t - self.icon_seen_at < 0.5 and self.ignored_streak < 3
+        return (self.icon_slot > 0 or self.hotbar_slot > 0) and t - self.icon_seen_at < 0.5 and self.ignored_streak < 3
 
     @property
     def landed(self):
@@ -190,7 +192,9 @@ class Cooldown:
             elif state == "ready":
                 if prev == "cooling" and self.cool_started is not None:
                     length = t - self.cool_started
-                    if length > 0.6 * self.duration and length < 3 * self.duration:
+                    # Mantra cooldowns vary a lot, so a hotbar slot may learn far from the starting guess.
+                    lo, hi = (0.2, 5) if self.hotbar_slot else (0.6, 3)
+                    if lo * self.duration < length < hi * self.duration:
                         self.natural = (self.natural + [round(length, 3)])[-5:]
                     if self.ready_at > t + 0.15:
                         msg = f"{self.name} ready ({self.ready_at - t:.1f}s early, from the game's icon)"

@@ -51,7 +51,7 @@ DEFAULTS = {
     "notify": {"enabled": True, "sound_on": True, "sound": "", "image": "", "volume": 70, "seconds": 4,
                "party_low": True},
     "builder": {"url": "", "name": "", "talents": [], "obtained": [], "watch": False,
-                "region": [480, 160, 960, 700], "max_rows": 12},
+                "highlight": True, "max_rows": 12},
     "music": {"tracks": [], "volume": 60, "loop": True, "shuffle": False},
     "start_active": False,
     "monitor": 1,
@@ -65,6 +65,8 @@ DEFAULTS = {
     "widgets": {},
     # Deepwoken's cooldown bubbles under the health bar (1920x1080): bars sync to them.
     "cd_icons": {"enabled": True, "x": [933, 951, 969, 987], "y": [928, 962]},
+    # Deepwoken's hotbar along the bottom (1920x1080): mantra bars follow how dark their slot is.
+    "hotbar": {"x0": 564, "step": 72, "y": [1004, 1058], "half": 26},
     # Where the Deepwoken server name is (top left info block, 1920x1080).
     "server_name": {"region": [452, 8, 188, 26]},
     # Your own health, read off your health bar (1920x1080 defaults).
@@ -83,6 +85,10 @@ DEFAULTS = {
         "port": 8883,
         "quick": ["need help!", "on my way", "low hp, backing off", "gg"],
     },
+    # Answer party messages by voice: listens on this mic for a few seconds after a message arrives
+    # (or while the voice key is held) and sends the phrase you said.
+    "voice": {"enabled": False, "mic": "", "listen_s": 6, "key": "",
+              "phrases": ["yes", "no", "on my way", "need help", "wait", "coming", "okay", "thanks", "run", "low hp"]},
     # Press Deepwoken's Z / X / C / V prompts when they show up (never the teal fakes).
     "prompts": {
         "enabled": False,
@@ -100,9 +106,9 @@ DEFAULTS = {
         {
             "name": "Dodge",
             "key": "q",
-            "cooldown_ms": 2000,
+            "cooldown_ms": 750,
             "color": "#69b9e8",
-            "icon_slot": 1,
+            "icon_slot": 0,   # the game's roll bubble stays dim far longer than you actually have to wait
             "cancel": {"enabled": True, "key": "mouse_right", "window_ms": 350, "cooldown_ms": 0, "max_refunds": 1},
             "resets": [new_reset("Blade Dancer (M1 hit)", "mouse_left", window_ms=350)],
         },
@@ -162,7 +168,7 @@ DEFAULTS = {
 
 def new_cooldown(name="New cooldown"):
     cd = copy.deepcopy(DEFAULTS["cooldowns"][1])
-    cd.update(name=name, key="e", color="#a78bfa", resets=[], icon_slot=0)
+    cd.update(name=name, key="e", color="#a78bfa", resets=[], icon_slot=0, hotbar_slot=0)
     return cd
 
 
@@ -228,6 +234,15 @@ def _migrate(cfg):
         cfg["_icon_slots_v1"] = True
         for cd in cfg.get("cooldowns", []):
             cd.setdefault("icon_slot", {"Dodge": 1, "Parry": 2}.get(cd.get("name"), 0))
+    # v2.2: the roll bubble stays dim for 1.5-2.3 s while you can roll again after ~0.75 s, so the
+    # Dodge bar runs on its own timer instead of following it.
+    if not cfg.get("_dodge_v22"):
+        cfg["_dodge_v22"] = True
+        for cd in cfg.get("cooldowns", []):
+            if cd.get("name") == "Dodge":
+                cd["icon_slot"] = 0
+                if cd.get("cooldown_ms") in (2000, 1750):
+                    cd["cooldown_ms"] = 750
     # v2: Spam F macro (hold the side mouse button to spam parry).
     if not cfg.get("_macros_v2"):
         cfg["_macros_v2"] = True

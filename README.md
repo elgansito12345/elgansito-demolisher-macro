@@ -30,6 +30,23 @@ positive; the whole source is in this repo. Either:
 
 Settings are saved in `%APPDATA%\ElgansitoDemolisher`, so updating or re-unzipping keeps them.
 
+## What's new in v2.2
+
+- **Parry bar follows the game again.** Deepwoken's newer HUD has no dark panel behind the cooldown bubbles,
+  so the old reader lost them and the bars ran on plain timers. It now finds the bubbles by their outline.
+- **Dodge is 750 ms on its own timer** (the game's roll bubble stays dim far longer than you have to wait).
+- **Edgerunner bar style** (Overlays → Style), after the Cyberpunk bar: black angled frame, neon glow,
+  hatched track, `//` ends, and the bar text on a plate in the middle. Set the bar colour to lime (#b6ff1a) for the full look.
+- **Mantra bars:** Cooldowns → **+ Mantra bar** makes a bar for a hotbar slot; it follows the slot going dark
+  while the mantra is on cooldown and learns the real length.
+- **BUILDER 101 rewritten:** only reacts to a row of 2+ level-up cards (never the talent list or hover tooltips),
+  reads each card's title, puts a glowing **IN YOUR BUILD** frame around the matching card, and ignores this
+  app's own overlays. **Sync from my in-game talent list** ticks the talents you already have.
+- **Main Menu:** Party HP shows *Main Menu* when you or a friend is on Deepwoken's character select.
+- **Voice replies:** pick your mic in Party HP → Voice replies. After a friend's message you have a few seconds
+  to say *yes*, *no*, *on my way*... and it's sent for you (Windows' offline speech recognizer, only listening then
+  or while you hold the voice key).
+
 ## What's new in v2.1
 
 - **Overlays hide when you tab out** of Roblox and come back when you click into the game
@@ -128,6 +145,7 @@ Everyone in the party:
 | FastFlags file | only when you press **Save flags** (or launch with *merge before launch* on) | No |
 | Your deepwoken.co build page | only when you press **Load build** | It downloads that page, nothing is sent |
 | Spotify window title | to show the song in the Music page | No |
+| Microphone | only with Voice replies on, for a few seconds after a party message (or while you hold the voice key); recognised offline by Windows | Only the phrase you said, as a party message |
 | Windows startup entry | only if you tick **Start with Windows** | No |
 
 There's no other network traffic, no telemetry, no auto-updater, and no reading of
@@ -148,7 +166,7 @@ Build the exe:
 
 ```
 pip install pyinstaller
-pyinstaller --noconfirm --windowed --name ElgansitoDemolisherMacro --icon icon.ico --collect-all winrt --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 app.py
+pyinstaller --noconfirm --windowed --name ElgansitoDemolisherMacro --icon icon.ico --collect-all winrt --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32 --hidden-import win32com.client --hidden-import pythoncom app.py
 ```
 
 Lite: same command with `--name ElgansitoLite lite.py` instead of `--name ElgansitoDemolisherMacro ... app.py`.

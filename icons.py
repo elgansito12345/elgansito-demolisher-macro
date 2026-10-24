@@ -37,10 +37,18 @@ class IconReader:
 
         gaps = [(a + b) // 2 for a, b in zip(cols, cols[1:])]
 
+        def ringed(c, ys):
+            # Each bubble has a thin outline: dark, bright (~185), dark, a few px above and below its centre.
+            col = gray[:, c].astype(int)
+            return any(0 < y < h - 1 and col[y] > 140 and col[y - 1] < 90 and col[y + 1] < 90 for y in ys)
+
         def panel_dark(y):
-            # Between real bubbles is the HUD's dark panel (~40). A bright floor or snow showing
-            # where the bubbles are expected (other screen sizes) is not, so don't trust those reads.
-            return all(np.percentile(gray[y - 1:y + 2, g - 1:g + 2], 90) < 90 for g in gaps)
+            # Older HUD: a dark panel (~40) between the bubbles. Newer HUD: no panel (the ground shows
+            # through), so check for every bubble's outline instead. A bright floor or snow where the
+            # bubbles are expected (other screen sizes) passes neither, so those reads aren't trusted.
+            if all(np.percentile(gray[y - 1:y + 2, g - 1:g + 2], 90) < 90 for g in gaps):
+                return True
+            return all(ringed(c, range(y - 8, y - 4)) and ringed(c, range(y + 5, y + 9)) for c in cols)
 
         # Lock onto the row only when every bubble is lit (text above the row can also be bright,
         # but never at all four bubble columns), and keep it while some are dim.
