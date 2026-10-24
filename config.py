@@ -60,7 +60,7 @@ DEFAULTS = {
     "ui": {"click_sound": True, "volume": 60, "animations": True, "display_name": "ELGANSITO",
            "tagline": "EDGERUNNER // LV.20", "pfp": "", "background": "", "background_dim": 70},
     "overlay": {"locked": False, "opacity": 0.92, "bar_style": "flat", "flat_width": 178, "flat_height": 12, "flat_outline": 1,
-                "party_width": 400, "party_bar": 12, "party_style": "cyber", "party_chat_lines": 3,
+                "party_width": 400, "party_bar": 12, "party_style": "cyber", "party_chat_lines": 3, "party_info_size": 10,
                 "hide_unfocused": True},
     "widgets": {},
     # Deepwoken's cooldown bubbles under the health bar (1920x1080): bars sync to them.

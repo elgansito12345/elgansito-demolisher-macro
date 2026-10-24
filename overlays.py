@@ -550,7 +550,8 @@ class PartyOverlay(Overlay):
         ov = self.controller.cfg["overlay"]
         cyber = ov.get("party_style", "cyber") == "cyber"
         self.bar_h = max(int(ov.get("party_bar", 12)), 3)
-        self.ROW = (46 if cyber else 42) + self.bar_h
+        self.info_size = max(int(ov.get("party_info_size", 10)), 7)  # server / region line
+        self.ROW = 34 + self.info_size + self.bar_h if cyber else 42 + self.bar_h
         rows = list(self.controller.engine.party)
         chat = self.chat_lines()
         chat_h = (8 + self.CHAT_ROW * len(chat)) if chat else 0
@@ -662,17 +663,33 @@ class PartyOverlay(Overlay):
         p.setPen(colour)
         p.drawText(QRectF(w - 96, y, 80, 18), Qt.AlignVCenter | Qt.AlignRight, status)
         # second line: server and region, cyan when they're in your server
+        line_h = self.info_size + 8
         if online:
-            p.setFont(QFont("Consolas", 7))
-            parts = [(row.get("server") or "server unknown").upper()]
-            if row.get("region"):
-                parts.append(row["region"].upper())
-            if row.get("same") and not is_you:
-                parts.append("SAME SERVER")
-            p.setPen(CY_CYAN if row.get("same") else MUTED)
-            text = p.fontMetrics().elidedText("  //  ".join(parts), Qt.ElideRight, w - 32)
-            p.drawText(QRectF(16, y + 18, w - 32, 13), Qt.AlignVCenter, text)
-        self.paint_cyber_bar(p, QRectF(16, y + 35, w - 32, self.bar_h), frac if online else None, colour)
+            self.paint_info(p, row, is_you, QRectF(16, y + 19, w - 32, line_h))
+        self.paint_cyber_bar(p, QRectF(16, y + 22 + line_h, w - 32, self.bar_h), frac if online else None, colour)
+
+    def paint_info(self, p, row, is_you, area):
+        """Server name (bright), region (softer) and a SAME SERVER tag, big enough to read at a glance."""
+        p.setFont(QFont("Bahnschrift", self.info_size, QFont.DemiBold))
+        fm = p.fontMetrics()
+        x = area.x()
+        same = row.get("same") and not is_you
+        pieces = [(row.get("server") or "server unknown", CY_CYAN if same else QColor(236, 240, 245))]
+        if row.get("region"):
+            pieces.append(("  ·  " + row["region"], QColor(170, 186, 204)))
+        for text, colour in pieces:
+            room = area.right() - x - (100 if same else 0)
+            if room <= 10:
+                break
+            text = fm.elidedText(text, Qt.ElideRight, int(room))
+            p.setPen(QColor(0, 0, 0, 220))  # shadow so it reads over bright scenery
+            p.drawText(QRectF(x + 1, area.y() + 1, room, area.height()), Qt.AlignVCenter, text)
+            p.setPen(colour)
+            p.drawText(QRectF(x, area.y(), room, area.height()), Qt.AlignVCenter, text)
+            x += fm.horizontalAdvance(text)
+        if same:
+            p.setFont(QFont("Consolas", max(self.info_size - 2, 7), QFont.Bold))
+            self.tag(p, x + 8, area.y() + (area.height() - 19) / 2, "SAME SERVER", CY_CYAN, QColor(8, 11, 16))
 
     def tag(self, p, x, y, text, bg, fg):
         """A small slanted label; returns where the next one goes."""

@@ -977,7 +977,9 @@ class WidgetsPage(Page):
         pstyle = combo({"cyber": "Cyber", "classic": "Classic"}, ov.get("party_style", "cyber"),
                        lambda v: set_ov("party_style", v))
         plines = spin(ov.get("party_chat_lines", 3), 0, 8, lambda v: set_ov("party_chat_lines", v), " messages")
-        self.body.addWidget(row(QLabel("Party HP  style"), pstyle, QLabel("width"), pw, QLabel("bar thickness"), pb))
+        psize = spin(ov.get("party_info_size", 10), 7, 20, lambda v: set_ov("party_info_size", v), " pt")
+        self.body.addWidget(row(QLabel("Party HP  style"), pstyle, QLabel("width"), pw, QLabel("bar thickness"), pb,
+                                QLabel("server text"), psize))
         if not engine_mod.LITE:
             self.body.addWidget(row(QLabel("Party messages shown on the overlay"), plines))
         self.grid_host = QWidget()
