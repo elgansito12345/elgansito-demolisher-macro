@@ -209,9 +209,17 @@ class KeyButton(QPushButton):
         self.value = value
         self.on_change = on_change
         self.setMinimumWidth(130)
-        self.setToolTip("Click, then press a key or mouse button. Esc cancels.")
+        self.setToolTip("Click, then press a key or mouse button. Esc cancels, right-click clears.")
         self.clicked.connect(self.start)
         self.timer = QTimer(self, interval=30, timeout=self.poll)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.RightButton and not self.timer.isActive():
+            self.value = ""
+            self.on_change("")
+            self.setText(nice_key(""))
+            return
+        super().mousePressEvent(e)
 
     def start(self):
         eng = self.controller.engine
@@ -1657,7 +1665,18 @@ class PartyPage(Page):
             form.addRow(row(*quick))
         self.chat_info = hint("")
         form.addRow(self.chat_info)
-        form.addRow(hint(f"In game, press {self.c.cfg.get('chat_key', 'f4').upper()} to open a message box over "
+        binds = pcfg.setdefault("binds", [])
+        while len(binds) < 6:
+            binds.append({"key": "", "text": ""})
+        form.addRow(QLabel("Message hotkeys - press the key in game and the message is sent right away"))
+        for b in binds:
+            text = QLineEdit(b.get("text", ""))
+            text.setPlaceholderText("message")
+            text.setMaxLength(party.CHAT_MAX)
+            text.editingFinished.connect(lambda b=b, text=text: (b.__setitem__("text", text.text().strip()), ch()))
+            key = KeyButton(self.c, b.get("key", ""), lambda k, b=b: (b.__setitem__("key", k), ch()))
+            form.addRow(row(key, text, stretch=False))
+        form.addRow(hint(f"In game, press {self.c.cfg.get('chat_key', 'enter').upper()} to open a message box over "
                          "Roblox (change the key in Settings > Hotkeys). Messages are encrypted with the party code "
                          "like your HP. Friends get a notification and see them on their Party HP overlay."))
         lay.addWidget(box)

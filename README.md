@@ -30,6 +30,13 @@ positive; the whole source is in this repo. Either:
 
 Settings are saved in `%APPDATA%\ElgansitoDemolisher`, so updating or re-unzipping keeps them.
 
+## What's new in v2.3
+
+- **Enter opens the party message box** in game (was F4): type, Enter sends, Esc closes. When you open Roblox's
+  own chat with `/`, the Enter that sends that message is left alone.
+- **Message hotkeys:** Party HP → Messages has 6 slots of *key + message* (e.g. H = "HELP!"). Press the key in
+  game and the message goes out right away. Right-click a key button to clear it.
+
 ## What's new in v2.2
 
 - **Parry bar follows the game again.** Deepwoken's newer HUD has no dark panel behind the cooldown bubbles,

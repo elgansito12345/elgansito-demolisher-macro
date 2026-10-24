@@ -46,7 +46,7 @@ DEFAULTS = {
     "toggle_key": "f6",
     "pick_key": "f7",
     "hide_key": "f8",                # hides / shows the app window and overlays
-    "chat_key": "f4",                # opens the party message box in game
+    "chat_key": "enter",             # opens the party message box in game
     "performance": "balanced",        # light / balanced / max: how hard the background loops work
     "notify": {"enabled": True, "sound_on": True, "sound": "", "image": "", "volume": 70, "seconds": 4,
                "party_low": True},
@@ -84,6 +84,9 @@ DEFAULTS = {
         "broker": "broker.emqx.io",
         "port": 8883,
         "quick": ["need help!", "on my way", "low hp, backing off", "gg"],
+        # Hotkeys that send a message straight away, without opening the box.
+        "binds": [{"key": "", "text": "HELP!"}, {"key": "", "text": "on my way"},
+                  {"key": "", "text": "low hp, backing off"}, {"key": "", "text": "ganked, come now"}],
     },
     # Answer party messages by voice: listens on this mic for a few seconds after a message arrives
     # (or while the voice key is held) and sends the phrase you said.
@@ -243,6 +246,11 @@ def _migrate(cfg):
                 cd["icon_slot"] = 0
                 if cd.get("cooldown_ms") in (2000, 1750):
                     cd["cooldown_ms"] = 750
+    # v2.3: Enter opens the party message box (it was F4).
+    if not cfg.get("_chat_enter_v23"):
+        cfg["_chat_enter_v23"] = True
+        if cfg.get("chat_key", "f4") == "f4":
+            cfg["chat_key"] = "enter"
     # v2: Spam F macro (hold the side mouse button to spam parry).
     if not cfg.get("_macros_v2"):
         cfg["_macros_v2"] = True

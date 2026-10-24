@@ -194,6 +194,7 @@ class Engine:
         self.party_link.on_chat = self._on_chat
         self.voice = voice.VoiceReplies(self.log, self._voice_reply)
         self.chat_requested = False  # the party message hotkey was pressed
+        self._roblox_typing = False  # Roblox's own chat box is open (after /)
         self.job_id = None          # Roblox server you're in (from the Roblox log)
         self.server = servername.ServerName()
         self._server_read_at = 0.0
@@ -303,9 +304,25 @@ class Engine:
             if name == self.cfg.get("hide_key"):
                 self.hide_requested = True
                 return
-            if name == self.cfg.get("chat_key") and not LITE and self.cfg.get("party", {}).get("enabled"):
-                self.chat_requested = True
-                return
+            pcfg = self.cfg.get("party", {})
+            if not LITE and pcfg.get("enabled") and self.game_focused():
+                # While you're typing in Roblox's own chat (opened with /), keys belong to it: the Enter
+                # that sends a Roblox message must not open the party box, and letters aren't hotkeys.
+                if name == "/":
+                    self._roblox_typing = True
+                elif name in ("enter", "esc") and self._roblox_typing:
+                    self._roblox_typing = False
+                    return
+                elif not self._roblox_typing:
+                    if name == self.cfg.get("chat_key"):
+                        self.chat_requested = True
+                        return
+                    text = next((b.get("text") for b in pcfg.get("binds", []) if b.get("key") == name), None)
+                    if text:
+                        err = self.party_link.send_chat(text)
+                        self.log(f"party message hotkey: {text}" + (f" (not sent: {err})" if err else ""))
+                        if err:
+                            self.notify("PARTY", f"couldn't send '{text}': {err}", "warn")
             if name and name == self.cfg.get("voice", {}).get("key") and self.cfg.get("voice", {}).get("enabled"):
                 self.voice.held = True
             if name == self.cfg.get("pick_key"):
